@@ -73,16 +73,13 @@
   let goneCount = 0;        // consecutive ticks the indicator is absent (defuse)
   let monIoU = null;        // live indicator value while counting down (debug)
   let detonateAt = 0;
-  let tainted = false;
   let detectTimer = null, renderTimer = null;
 
-  let canvas = document.createElement("canvas");
-  let cx = canvas.getContext("2d", { willReadFrequently: true });
   let hud = null;
   let roiBox = null, badgeBox = null, leftBox = null, dbg = null;
   let drag = { on: false, dx: 0, dy: 0 };
   let pipWin = null, pipEls = {};
-  const VERSION = "0.2.7-debug";
+  const VERSION = "0.2.8-debug";
   const TICK_MS = 250;   // sample 4x/sec so confirmation (CONFIRM_K) is fast
 
   // Valorant spike-icon shape templates (30x16 red-masks), extracted from real
@@ -108,63 +105,79 @@
   let tcx = tcanvas.getContext("2d", { willReadFrequently: true });
 
   // ---- video sampling -------------------------------------------------------
-  function getVideo() {
-    let best = null, area = 0;
-    for (const v of document.querySelectorAll("video")) {
-      // Just needs a decoded frame to sample — don't drop on transient pause /
-      // buffering (that was wasting detection ticks).
-      if (!v.videoWidth || v.readyState < 2) continue;
-      const a = v.videoWidth * v.videoHeight;
-      if (a > area) { area = a; best = v; }
+  // FrameSampler owns everything that touches the page <video> and the main
+  // sampling canvas. ROIs are given as FRACTIONS of the video frame, so sampling
+  // is independent of stream resolution and of co-stream/webcam layouts. The
+  // other pixel readers (iconMatch, bombScan, paintScore) still keep their own
+  // small canvases for now; they share this object's getVideo() and `tainted`.
+  class FrameSampler {
+    constructor() {
+      this.canvas = document.createElement("canvas");
+      this.cx = this.canvas.getContext("2d", { willReadFrequently: true });
+      this.tainted = false;   // true once a cross-origin video blocks pixel reads
     }
-    return best;
+
+    // The largest decoded <video> on the page. Just needs a decoded frame —
+    // don't drop on transient pause/buffering (that was wasting detection ticks).
+    getVideo() {
+      let best = null, area = 0;
+      for (const v of document.querySelectorAll("video")) {
+        if (!v.videoWidth || v.readyState < 2) continue;
+        const a = v.videoWidth * v.videoHeight;
+        if (a > area) { area = a; best = v; }
+      }
+      return best;
+    }
+
+    // {white, red} fractions inside the ROI, or null if no frame / canvas tainted.
+    sample(roi) {
+      const v = this.getVideo();
+      if (!v) return null;
+      const vw = v.videoWidth, vh = v.videoHeight;
+      const sw = Math.max(1, Math.round(roi.w * vw));
+      const sh = Math.max(1, Math.round(roi.h * vh));
+      this.canvas.width = sw; this.canvas.height = sh;
+      let data;
+      try {
+        this.cx.drawImage(v, roi.x * vw, roi.y * vh,
+          roi.w * vw, roi.h * vh, 0, 0, sw, sh);
+        data = this.cx.getImageData(0, 0, sw, sh).data;
+      } catch (e) {
+        this.tainted = true;          // cross-origin canvas blocked pixel read
+        return null;
+      }
+      let white = 0, red = 0, n = sw * sh;
+      for (let i = 0; i < data.length; i += 4) {
+        const r = data[i] / 255, g = data[i + 1] / 255, b = data[i + 2] / 255;
+        const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+        const sat = mx === 0 ? 0 : d / mx;
+        if (mx >= 0.7 && sat <= 0.25) white++;              // bright low-sat = digits
+        if (d > 0.001) {                                    // hue near red
+          let h;
+          if (mx === r) h = ((g - b) / d) % 6;
+          else if (mx === g) h = (b - r) / d + 2;
+          else h = (r - g) / d + 4;
+          h = (h * 60 + 360) % 360;
+          if ((h <= 18 || h >= 342) && sat >= 0.4 && mx >= 0.3) red++;
+        }
+      }
+      return { white: white / n, red: red / n };
+    }
   }
 
-  // Returns {white, red} fractions inside the given ROI, or null if no frame.
-  function sample(roi) {
-    const v = getVideo();
-    if (!v) return null;
-    const vw = v.videoWidth, vh = v.videoHeight;
-    const sw = Math.max(1, Math.round(roi.w * vw));
-    const sh = Math.max(1, Math.round(roi.h * vh));
-    canvas.width = sw; canvas.height = sh;
-    try {
-      cx.drawImage(v, roi.x * vw, roi.y * vh,
-        roi.w * vw, roi.h * vh, 0, 0, sw, sh);
-      var data = cx.getImageData(0, 0, sw, sh).data;
-    } catch (e) {
-      tainted = true;          // cross-origin canvas blocked pixel read
-      return null;
-    }
-    let white = 0, red = 0, n = sw * sh;
-    for (let i = 0; i < data.length; i += 4) {
-      const r = data[i] / 255, g = data[i + 1] / 255, b = data[i + 2] / 255;
-      const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
-      const sat = mx === 0 ? 0 : d / mx;
-      if (mx >= 0.7 && sat <= 0.25) white++;              // bright low-sat = digits
-      if (d > 0.001) {                                    // hue near red
-        let h;
-        if (mx === r) h = ((g - b) / d) % 6;
-        else if (mx === g) h = (b - r) / d + 2;
-        else h = (r - g) / d + 4;
-        h = (h * 60 + 360) % 360;
-        if ((h <= 18 || h >= 342) && sat >= 0.4 && mx >= 0.3) red++;
-      }
-    }
-    return { white: white / n, red: red / n };
-  }
+  const frames = new FrameSampler();
 
   // IoU of the timer-slot red shape vs the spike-icon template. Drawing the ROI
   // to a fixed 30x16 canvas normalizes size across stream resolutions.
   function iconMatch() {
-    const v = getVideo();
+    const v = frames.getVideo();
     if (!v || !v.videoWidth) return null;
     const vw = v.videoWidth, vh = v.videoHeight;
     try {
       tcx.drawImage(v, TIMER_ROI.x * vw, TIMER_ROI.y * vh,
         TIMER_ROI.w * vw, TIMER_ROI.h * vh, 0, 0, ICON.TW, ICON.TH);
       var d = tcx.getImageData(0, 0, ICON.TW, ICON.TH).data;
-    } catch (e) { tainted = true; return null; }
+    } catch (e) { frames.tainted = true; return null; }
     const N = ICON.TW * ICON.TH;
     const red = new Uint8Array(N);
     for (let i = 0; i < N; i++) {
@@ -200,13 +213,13 @@
   // Slide the C4 template (and its mirror) across the band; return the best
   // match: { iou, side, red }. Position-independent, side-independent.
   function bombScan() {
-    const v = getVideo();
+    const v = frames.getVideo();
     if (!v || !v.videoWidth) return { iou: 0, side: null, red: 0 };
     const vw = v.videoWidth, vh = v.videoHeight, TW = CS_BOMB.TW, TH = CS_BOMB.TH, BW = CS_BW;
     try {
       bcx.drawImage(v, CS_BAND.x * vw, CS_BAND.y * vh, CS_BAND.w * vw, CS_BAND.h * vh, 0, 0, BW, TH);
       var data = bcx.getImageData(0, 0, BW, TH).data;
-    } catch (e) { tainted = true; return { iou: 0, side: null, red: 0 }; }
+    } catch (e) { frames.tainted = true; return { iou: 0, side: null, red: 0 }; }
     const white = new Uint8Array(BW * TH), red = new Uint8Array(BW * TH);
     for (let i = 0; i < BW * TH; i++) {
       const r = data[i * 4] / 255, g = data[i * 4 + 1] / 255, b = data[i * 4 + 2] / 255;
@@ -252,7 +265,7 @@
     return b;
   }
   function placeBox(b, roi) {
-    const v = getVideo();
+    const v = frames.getVideo();
     if (!v || !v.videoWidth) { b.style.display = "none"; return; }
     const r = v.getBoundingClientRect();
     const arEl = r.width / r.height, arVid = v.videoWidth / v.videoHeight;
@@ -301,7 +314,7 @@
       // red low-time round-timer (also red, but digit-shaped -> low IoU).
       const iou = iconMatch();
       if (iou == null) {
-        setHud(tainted
+        setHud(frames.tainted
           ? "Can't read this player's pixels (cross-origin). Use the manual trigger."
           : "Waiting for stream…", null);
         return;
@@ -321,9 +334,9 @@
     // (anchored to when they first vanished, not when the badge solidifies); the
     // C4 SHAPE check rejects the red "ROUND WIN" banner. Cooldown above guards
     // the post-round replay.
-    const c = sample(CS_TIMER_ROI);
+    const c = frames.sample(CS_TIMER_ROI);
     if (!c) {
-      setHud(tainted
+      setHud(frames.tainted
         ? "Can't read this player's pixels (cross-origin). Use the manual trigger."
         : "Waiting for stream…", null);
       return;
@@ -558,7 +571,7 @@
   // Mirror the score-bar strip (team tags + scores + round) into the panel.
   function paintScore() {
     if (!pipWin || !pipEls.score) return;
-    const v = getVideo();
+    const v = frames.getVideo();
     if (!v || !v.videoWidth) return;
     const vw = v.videoWidth, vh = v.videoHeight;
     const sw = Math.max(1, Math.round(SCORE_ROI.w * vw));
@@ -607,7 +620,7 @@
     else if (msg.type === "DT_START") { cfg.game = msg.game || cfg.game; start(); }
     else if (msg.type === "DT_STOP") { stop(); }
     else if (msg.type === "DT_PLANT") { if (!cfg.running) start(); triggerPlant("manual"); }
-    else if (msg.type === "DT_STATE") { send({ running: cfg.running, game: cfg.game, tainted }); return true; }
+    else if (msg.type === "DT_STATE") { send({ running: cfg.running, game: cfg.game, tainted: frames.tainted }); return true; }
     send && send({ ok: true });
   });
 })();
