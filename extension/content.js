@@ -56,7 +56,8 @@
 
   const cfg = { game: "valorant", running: false };
   let dbg = null;           // latest per-tick debug snapshot (read by the overlay)
-  const VERSION = "0.2.15-debug";
+  let debugOn = false;      // debug HUD toggle (ROI boxes + value readout); default off
+  const VERSION = "0.2.23";
   const TICK_MS = 250;   // sample 4x/sec so confirmation (CONFIRM_K) is fast
 
   // Valorant spike-icon shape templates (30x16 red-masks), extracted from real
@@ -433,7 +434,7 @@
         overlay.set("Post-round cooldown…", null);
         return;
       }
-      boxes.update();
+      if (debugOn) boxes.update();
       // Each game owns its per-tick detection (icon shape / digits-gone + C4 scan).
       const r = game.poll();
       if (r.debug) dbg = r.debug;          // leave dbg stale when a frame can't be read
@@ -491,7 +492,7 @@
       const g = GAMES[cfg.game];
       const color = secs > g.yellowAt ? "#22c55e" : secs > g.redAt ? "#eab308" : "#ef4444";
       const label = (cfg.game === "cs2" ? "BOMB PLANTED" : "SPIKE PLANTED")
-        + (this.monIoU != null ? `  · ${this.monIoU.toFixed(2)}` : "");
+        + (debugOn && this.monIoU != null ? `  · ${this.monIoU.toFixed(2)}` : "");
       overlay.set(label, secs, color);
     }
   }
@@ -504,6 +505,7 @@
     constructor() {
       this.hud = null;
       this.el = {};
+      this.minimized = false;
       this.drag = { on: false, dx: 0, dy: 0 };
       // Drag handled at the window level so the pointer can leave the card.
       window.addEventListener("mousemove", (e) => {
@@ -524,8 +526,10 @@
       hud.id = "defuse-time-hud";
       hud.style.cssText = [
         "position:fixed", "right:18px", "bottom:18px", "z-index:2147483647",
-        "min-width:200px", "background:rgba(15,23,42,.92)", "color:#e5e7eb",
-        "border:1px solid rgba(51,65,85,.9)", "border-radius:12px",
+        "min-width:200px", "color:#e5e7eb",
+        // Subdued take on the popup's gradient (sits over a live stream).
+        "background:radial-gradient(120% 90% at 100% 0%,rgba(34,211,238,.10),transparent 55%),linear-gradient(160deg,rgba(12,18,32,.96),rgba(30,28,64,.96))",
+        "border:1px solid rgba(148,163,184,.16)", "border-radius:14px",
         "padding:12px 14px", "font:13px/1.4 'Segoe UI',system-ui,sans-serif",
         "box-shadow:0 12px 34px rgba(0,0,0,.45)", "cursor:move",
         "user-select:none",
@@ -535,21 +539,21 @@
           <b>Defuse Time</b>
           <span style="display:flex;align-items:center;gap:8px;">
             <span id="dt-label" style="font-size:11px;color:#94a3b8;"></span>
-            <button id="dt-close" title="Close (stop watching)" style="border:0;border-radius:6px;width:20px;height:20px;line-height:1;background:#334155;color:#e5e7eb;cursor:pointer;font-size:13px;">×</button>
+            <button id="dt-min" title="Minimize" style="border:0;border-radius:6px;width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;background:#334155;color:#e5e7eb;cursor:pointer;font-size:14px;">–</button>
+            <button id="dt-close" title="Close (stop watching)" style="border:0;border-radius:6px;width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;background:#334155;color:#e5e7eb;cursor:pointer;font-size:14px;">×</button>
           </span>
         </div>
         <div id="dt-status" style="color:#94a3b8;margin-bottom:2px;"></div>
-        <div id="dt-big" style="font-size:28px;font-weight:700;"></div>
+        <div id="dt-big" style="font-size:22px;font-weight:700;"></div>
         <div style="margin-top:8px;height:6px;background:#1e293b;border-radius:999px;overflow:hidden;">
           <div id="dt-bar" style="height:100%;width:0%;background:#475569;transition:width 80ms linear;"></div>
         </div>
         <div id="dt-dbg" style="margin-top:6px;font:11px/1.5 monospace;color:#7dd3fc;"></div>
         <div style="margin-top:10px;display:flex;gap:6px;">
-          <button id="dt-plant" style="flex:1;border:0;border-radius:7px;padding:6px;background:#ef4444;color:#111;font-weight:700;cursor:pointer;">Plant now</button>
-          <button id="dt-cancel" style="flex:1;border:0;border-radius:7px;padding:6px;background:#334155;color:#e5e7eb;cursor:pointer;">Reset</button>
-        </div>
-        <button id="dt-pip" style="margin-top:6px;width:100%;border:0;border-radius:7px;padding:6px;background:#0ea5e9;color:#04293b;font-weight:600;cursor:pointer;">⧉ Pop out panel</button>
-        <div style="margin-top:6px;font-size:11px;color:#64748b;">Hotkeys: Alt+P plant · Alt+C reset · Alt+X close</div>`;
+          <button id="dt-plant" style="flex:1;border:0;border-radius:7px;padding:6px;background:linear-gradient(180deg,#ef5454,#d92642);color:#fff;font-weight:700;cursor:pointer;">Plant now</button>
+          <button id="dt-cancel" style="border:0;border-radius:7px;padding:6px 10px;background:#334155;color:#e5e7eb;cursor:pointer;">Reset</button>
+          <button id="dt-pip" style="border:0;border-radius:7px;padding:6px 10px;background:#0ea5e9;color:#04293b;font-weight:600;cursor:pointer;">⧉ Pop out</button>
+        </div>`;
       document.documentElement.appendChild(hud);
       this.hud = hud;
       this.el = {
@@ -561,6 +565,13 @@
       hud.querySelector("#dt-cancel").onclick = () => { detector.reset(true); this.set("Watching for plant…", null); };
       hud.querySelector("#dt-close").onclick = () => detector.stop();
       hud.querySelector("#dt-pip").onclick = () => panel.open();
+      hud.querySelector("#dt-min").onclick = () => this.toggleMin();
+      // Hidden when minimized (leaves header + countdown). Remember each one's
+      // display so restoring keeps the buttons row as flex (not block), etc.
+      this.collapsible = [
+        this.el.label, this.el.status, this.el.bar.parentElement, this.el.dbg,
+        hud.querySelector("#dt-plant").parentElement,
+      ].filter(Boolean).map((el) => ({ el, disp: el.style.display }));
 
       // Drag to move (anywhere except the buttons).
       hud.addEventListener("mousedown", (e) => {
@@ -569,10 +580,11 @@
         this.drag.on = true; this.drag.dx = e.clientX - r.left; this.drag.dy = e.clientY - r.top;
         e.preventDefault();
       });
-      // Restore saved position.
+      // Restore saved position + minimized state.
       try {
-        chrome.storage.local.get("hudPos").then(({ hudPos }) => {
+        chrome.storage.local.get(["hudPos", "hudMin"]).then(({ hudPos, hudMin }) => {
           if (hudPos && this.hud) this.place(hudPos.left, hudPos.top);
+          if (hudMin) { this.minimized = true; this.applyMin(); }
         });
       } catch (e) { /* storage may be unavailable */ }
     }
@@ -585,13 +597,26 @@
       this.hud.style.right = "auto"; this.hud.style.bottom = "auto";
     }
 
+    // Collapse to just the header + countdown (and back). Persisted across reloads.
+    toggleMin() {
+      this.minimized = !this.minimized;
+      this.applyMin();
+      try { chrome.storage.local.set({ hudMin: this.minimized }); } catch (e) {}
+    }
+    applyMin() {
+      for (const c of this.collapsible || []) c.el.style.display = this.minimized ? "none" : c.disp;
+      if (this.hud) this.hud.style.minWidth = this.minimized ? "0px" : "200px";
+      const b = this.hud && this.hud.querySelector("#dt-min");
+      if (b) { b.textContent = this.minimized ? "□" : "–"; b.title = this.minimized ? "Expand" : "Minimize"; }
+    }
+
     set(status, secs, color) {
       this.ensure();
       const el = this.el;
       const fuse = GAMES[cfg.game].fuse;
       const pct = secs == null ? 0 : Math.max(0, Math.min(1, secs / fuse));
       const bigTxt = secs == null ? "—" : secs.toFixed(1) + "s";
-      el.label.textContent = `${GAMES[cfg.game].label} · ${VERSION}`;
+      el.label.textContent = `${GAMES[cfg.game].label} · ${VERSION}${debugOn ? "-debug" : ""}`;
       el.status.textContent = status;
       el.big.textContent = bigTxt;
       el.big.style.color = color || "#e5e7eb";
@@ -599,7 +624,7 @@
       el.bar.style.background = color || "#475569";
       // Mirror to the pop-out panel if open.
       panel.update(status, bigTxt, color, pct);
-      if (secs == null && dbg) {
+      if (debugOn && secs == null && dbg) {
         const f = (x) => x == null ? "–" : x.toFixed(3);
         const body = dbg.mode === "valo"
           ? `iconIoU=${f(dbg.iou)} (need ≥${GAMES[cfg.game].threshold})<br>${dbg.iou >= GAMES[cfg.game].threshold ? "ICON✓" : "no-icon"}`
@@ -705,6 +730,7 @@
     else if (msg.type === "DT_STOP") { detector.stop(); }
     else if (msg.type === "DT_PLANT") { if (!cfg.running) detector.start(); detector.triggerPlant("manual"); }
     else if (msg.type === "DT_SET_SETTINGS") { applySettings(msg.game, msg); }
+    else if (msg.type === "DT_SET_DEBUG") { setDebug(msg.on); }
     else if (msg.type === "DT_STATE") { send({ running: cfg.running, game: cfg.game, tainted: frames.tainted }); return true; }
     send && send({ ok: true });
   });
@@ -717,9 +743,15 @@
     if (typeof s.threshold === "number") g.threshold = s.threshold;
     if (typeof s.cooldown === "number") g.cooldownMs = s.cooldown * 1000;   // slider is in seconds
   }
+  // Debug HUD toggle (ROI boxes + live value readout). Default OFF for release.
+  function setDebug(on) {
+    debugOn = !!on;
+    if (!debugOn) boxes.hide();
+  }
   try {
-    chrome.storage.local.get("settings").then(({ settings }) => {
+    chrome.storage.local.get(["settings", "debug"]).then(({ settings, debug }) => {
       if (settings) for (const k of ["valorant", "cs2"]) applySettings(k, settings[k]);
+      setDebug(debug);
     });
   } catch (e) { /* storage unavailable */ }
 })();
