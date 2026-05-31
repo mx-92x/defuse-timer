@@ -78,8 +78,7 @@
   let hud = null;
   let roiBox = null, badgeBox = null, leftBox = null, dbg = null;
   let drag = { on: false, dx: 0, dy: 0 };
-  let pipWin = null, pipEls = {};
-  const VERSION = "0.2.8-debug";
+  const VERSION = "0.2.9-debug";
   const TICK_MS = 250;   // sample 4x/sec so confirmation (CONFIRM_K) is fast
 
   // Valorant spike-icon shape templates (30x16 red-masks), extracted from real
@@ -300,7 +299,7 @@
   // ---- detection loop -------------------------------------------------------
   function detectTick() {
     if (!cfg.running) return;
-    paintScore();
+    panel.paintScore();
     if (planted) { monitorPlant(); return; }
     if (performance.now() < cooldownUntil) {
       plantRun = 0; dgRun = 0;
@@ -474,7 +473,7 @@
     hud.querySelector("#dt-plant").onclick = () => triggerPlant("manual");
     hud.querySelector("#dt-cancel").onclick = () => { reset(true); setHud("Watching for plant…", null); };
     hud.querySelector("#dt-close").onclick = () => stop();
-    hud.querySelector("#dt-pip").onclick = () => openPip();
+    hud.querySelector("#dt-pip").onclick = () => panel.open();
 
     // Drag to move (anywhere except the buttons). Position is persisted.
     hud.addEventListener("mousedown", (e) => {
@@ -511,13 +510,7 @@
     el.bar.style.width = (pct * 100).toFixed(1) + "%";
     el.bar.style.background = color || "#475569";
     // Mirror to the pop-out panel if open.
-    if (pipWin && pipEls.big) {
-      pipEls.status.textContent = status;
-      pipEls.big.textContent = bigTxt;
-      pipEls.big.style.color = color || "#e5e7eb";
-      pipEls.bar.style.width = (pct * 100).toFixed(1) + "%";
-      pipEls.bar.style.background = color || "#475569";
-    }
+    panel.update(status, bigTxt, color, pct);
     if (secs == null && dbg) {
       const f = (x) => x == null ? "–" : x.toFixed(3);
       const body = dbg.mode === "valo"
@@ -532,56 +525,78 @@
   function removeHud() { if (hud) hud.remove(); hud = null; el = {}; }
 
   // ---- pop-out panel (Document Picture-in-Picture) --------------------------
-  async function openPip() {
-    if (!("documentPictureInPicture" in window)) {
-      setHud("Pop-out needs Chrome 116+ (not supported here)", null);
-      return;
+  // A second-monitor window: the countdown + a LIVE pixel mirror of the
+  // score/round bar (no OCR — copied pixels can't misread). Owns its own window
+  // and element refs. setHud() pushes countdown updates here via update().
+  class PopoutPanel {
+    constructor() {
+      this.win = null;
+      this.els = {};
     }
-    if (pipWin) { try { pipWin.focus(); } catch (e) {} return; }
-    let w;
-    try {
-      w = await window.documentPictureInPicture.requestWindow({ width: 320, height: 220 });
-    } catch (e) { return; }
-    pipWin = w;
-    const d = w.document;
-    d.body.style.cssText = "margin:0;background:#0f172a;color:#e5e7eb;font:13px/1.4 'Segoe UI',system-ui,sans-serif;";
-    d.body.innerHTML = `
-      <div style="padding:12px 14px;">
-        <canvas id="p-score" style="width:100%;display:block;border-radius:6px;background:#1e293b;margin-bottom:8px;"></canvas>
-        <div id="p-status" style="color:#94a3b8;margin-bottom:2px;">Watching for plant…</div>
-        <div id="p-big" style="font-size:38px;font-weight:700;line-height:1.1;">—</div>
-        <div style="margin-top:8px;height:7px;background:#1e293b;border-radius:999px;overflow:hidden;">
-          <div id="p-bar" style="height:100%;width:0%;background:#475569;transition:width 80ms linear;"></div>
-        </div>
-      </div>`;
-    const sc = d.getElementById("p-score");
-    pipEls = {
-      score: sc, sctx: sc.getContext("2d"),
-      status: d.getElementById("p-status"), big: d.getElementById("p-big"), bar: d.getElementById("p-bar"),
-    };
-    w.addEventListener("pagehide", () => { pipWin = null; pipEls = {}; });
-    paintScore();
+
+    async open() {
+      if (!("documentPictureInPicture" in window)) {
+        setHud("Pop-out needs Chrome 116+ (not supported here)", null);
+        return;
+      }
+      if (this.win) { try { this.win.focus(); } catch (e) {} return; }
+      let w;
+      try {
+        w = await window.documentPictureInPicture.requestWindow({ width: 320, height: 220 });
+      } catch (e) { return; }
+      this.win = w;
+      const d = w.document;
+      d.body.style.cssText = "margin:0;background:#0f172a;color:#e5e7eb;font:13px/1.4 'Segoe UI',system-ui,sans-serif;";
+      d.body.innerHTML = `
+        <div style="padding:12px 14px;">
+          <canvas id="p-score" style="width:100%;display:block;border-radius:6px;background:#1e293b;margin-bottom:8px;"></canvas>
+          <div id="p-status" style="color:#94a3b8;margin-bottom:2px;">Watching for plant…</div>
+          <div id="p-big" style="font-size:38px;font-weight:700;line-height:1.1;">—</div>
+          <div style="margin-top:8px;height:7px;background:#1e293b;border-radius:999px;overflow:hidden;">
+            <div id="p-bar" style="height:100%;width:0%;background:#475569;transition:width 80ms linear;"></div>
+          </div>
+        </div>`;
+      const sc = d.getElementById("p-score");
+      this.els = {
+        score: sc, sctx: sc.getContext("2d"),
+        status: d.getElementById("p-status"), big: d.getElementById("p-big"), bar: d.getElementById("p-bar"),
+      };
+      w.addEventListener("pagehide", () => { this.win = null; this.els = {}; });
+      this.paintScore();
+    }
+
+    close() {
+      if (this.win) { try { this.win.close(); } catch (e) {} }
+      this.win = null; this.els = {};
+    }
+
+    // Mirror the countdown text + progress bar from the main overlay.
+    update(status, bigTxt, color, pct) {
+      if (!this.win || !this.els.big) return;
+      this.els.status.textContent = status;
+      this.els.big.textContent = bigTxt;
+      this.els.big.style.color = color || "#e5e7eb";
+      this.els.bar.style.width = (pct * 100).toFixed(1) + "%";
+      this.els.bar.style.background = color || "#475569";
+    }
+
+    // Mirror the score-bar strip (team tags + scores + round) into the panel.
+    paintScore() {
+      if (!this.win || !this.els.score) return;
+      const v = frames.getVideo();
+      if (!v || !v.videoWidth) return;
+      const vw = v.videoWidth, vh = v.videoHeight;
+      const sw = Math.max(1, Math.round(SCORE_ROI.w * vw));
+      const sh = Math.max(1, Math.round(SCORE_ROI.h * vh));
+      if (this.els.score.width !== sw) { this.els.score.width = sw; this.els.score.height = sh; }
+      try {
+        this.els.sctx.drawImage(v, SCORE_ROI.x * vw, SCORE_ROI.y * vh,
+          SCORE_ROI.w * vw, SCORE_ROI.h * vh, 0, 0, sw, sh);
+      } catch (e) { /* tainted/unavailable */ }
+    }
   }
 
-  function closePip() {
-    if (pipWin) { try { pipWin.close(); } catch (e) {} }
-    pipWin = null; pipEls = {};
-  }
-
-  // Mirror the score-bar strip (team tags + scores + round) into the panel.
-  function paintScore() {
-    if (!pipWin || !pipEls.score) return;
-    const v = frames.getVideo();
-    if (!v || !v.videoWidth) return;
-    const vw = v.videoWidth, vh = v.videoHeight;
-    const sw = Math.max(1, Math.round(SCORE_ROI.w * vw));
-    const sh = Math.max(1, Math.round(SCORE_ROI.h * vh));
-    if (pipEls.score.width !== sw) { pipEls.score.width = sw; pipEls.score.height = sh; }
-    try {
-      pipEls.sctx.drawImage(v, SCORE_ROI.x * vw, SCORE_ROI.y * vh,
-        SCORE_ROI.w * vw, SCORE_ROI.h * vh, 0, 0, sw, sh);
-    } catch (e) { /* tainted/unavailable */ }
-  }
+  const panel = new PopoutPanel();
 
   // ---- control --------------------------------------------------------------
   function start() {
@@ -594,7 +609,7 @@
   function stop() {
     cfg.running = false;
     if (detectTimer) clearInterval(detectTimer); detectTimer = null;
-    stopRender(); reset(false); hideBoxes(); closePip(); removeHud();
+    stopRender(); reset(false); hideBoxes(); panel.close(); removeHud();
   }
 
   window.addEventListener("keydown", (e) => {
