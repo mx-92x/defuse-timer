@@ -1,0 +1,44 @@
+# --- Python diagnostics (tools/) ---
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# --- Downloaded VOD clips + extracted frame dumps ---
+# The *.png "evidence" images referenced in NOTES.md ARE committed (they're
+# documentation). Raw video clips and bulk frame extractions are not.
+*.mp4
+*.mkv
+*.webm
+clip*/
+frames/
+tools/clips/
+
+# --- Node (only `node --check` is used; no deps yet) ---
+node_modules/
+
+# --- Claude Code local state ---
+.claude/settings.local.json
+.claude/plans/
+
+# --- Internal working docs & R&D — NEVER published (kept local only) ---
+# Our research, methodology, planning notes, and evidence images. The shipped
+# extension (extension/) is public under AGPL; these are NOT part of it and stay
+# private so a forker can't see how we got here (only where we are).
+# Leading "/" anchors to repo root so it never affects extension/ assets
+# (e.g. a future extension/icon128.png is NOT caught by /*.png).
+/CLAUDE.md
+/NOTES.md
+/REFACTOR_PLAN.md
+/TEST_PLAN.md
+/*.png
+/tools/
+
+# --- Scratch / stale dumps ---
+_x.txt
+
+# --- OS / editor junk ---
+.DS_Store
+Thumbs.db
+*.swp
+*~

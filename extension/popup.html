@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { width: 230px; margin: 0; padding: 14px;
+      font: 13px/1.4 "Segoe UI", system-ui, sans-serif;
+      background: #0f172a; color: #e5e7eb; }
+    h1 { font-size: 15px; margin: 0 0 2px; }
+    .sub { color: #94a3b8; font-size: 11px; margin-bottom: 12px; }
+    label { display: block; font-size: 11px; color: #94a3b8; margin: 10px 0 4px; }
+    select, button { width: 100%; box-sizing: border-box; border-radius: 8px;
+      border: 0; padding: 9px; font-size: 13px; cursor: pointer; }
+    select { background: #1e293b; color: #e5e7eb; }
+    .row { display: flex; gap: 8px; margin-top: 10px; }
+    .row button { flex: 1; }
+    #start { background: #22c55e; color: #052e16; font-weight: 700; }
+    #stop { background: #334155; color: #e5e7eb; }
+    #plant { background: #ef4444; color: #450a0a; font-weight: 700; margin-top: 8px; }
+    #status { margin-top: 12px; font-size: 11px; color: #64748b; }
+  </style>
+</head>
+<body>
+  <h1>Defuse Time</h1>
+  <div class="sub">Spike/bomb countdown for stream viewers</div>
+
+  <label for="game">Game</label>
+  <select id="game">
+    <option value="valorant">Valorant (45s spike)</option>
+    <option value="cs2">CS2 (40s bomb)</option>
+  </select>
+
+  <div class="row">
+    <button id="start">Start watching</button>
+    <button id="stop">Stop</button>
+  </div>
+  <button id="plant">Plant now (manual)</button>
+
+  <div id="status">Open a Valorant/CS2 stream, pick the game, Start.</div>
+  <script src="popup.js"></script>
+</body>
+</html>

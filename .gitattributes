@@ -1,0 +1,7 @@
+# Normalize line endings: store text as LF in the repo, check out native on disk.
+* text=auto
+
+# Treat these as binary so Git never tries to normalize them.
+*.png binary
+*.mp4 binary
+*.zip binary

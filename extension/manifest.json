@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "Defuse Time",
+  "version": "0.1.0",
+  "description": "Viewer-side spike/bomb countdown for Valorant & CS2 streams. Auto-detects the plant from the stream and runs a detonation timer.",
+  "action": {
+    "default_title": "Defuse Time",
+    "default_popup": "popup.html"
+  },
+  "permissions": ["storage"],
+  "content_scripts": [
+    {
+      "matches": ["*://*.youtube.com/*", "*://*.twitch.tv/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
