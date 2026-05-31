@@ -56,7 +56,7 @@
 
   const cfg = { game: "valorant", running: false };
   let dbg = null;           // latest per-tick debug snapshot (read by the overlay)
-  const VERSION = "0.2.14-debug";
+  const VERSION = "0.2.15-debug";
   const TICK_MS = 250;   // sample 4x/sec so confirmation (CONFIRM_K) is fast
 
   // Valorant spike-icon shape templates (30x16 red-masks), extracted from real
@@ -145,8 +145,10 @@
   // A Game owns one title's plant-detection signal. Both share the countdown
   // config (fuse + color thresholds); each implements its own pixel matcher.
   class Game {
-    constructor({ fuse, label, redAt, yellowAt }) {
+    constructor({ fuse, label, redAt, yellowAt, threshold, cooldownMs }) {
       this.fuse = fuse; this.label = label; this.redAt = redAt; this.yellowAt = yellowAt;
+      this.threshold = threshold;     // plant-match threshold (user-tunable slider)
+      this.cooldownMs = cooldownMs;   // post-round suppression window (user-tunable)
       this.run = 0;   // consecutive ticks meeting the full plant condition (confirm)
     }
     reset(hard) { this.run = 0; }   // hard = also clear round-learned state (subclasses)
@@ -157,7 +159,7 @@
   // red low-time round-timer (also red, but digit-shaped) doesn't false-fire.
   class ValorantGame extends Game {
     constructor() {
-      super({ fuse: 45, label: "Valorant", redAt: 7, yellowAt: 21 });
+      super({ fuse: 45, label: "Valorant", redAt: 7, yellowAt: 21, threshold: ICON_IOU, cooldownMs: COOLDOWN_MS });
       this.canvas = document.createElement("canvas");
       this.canvas.width = ICON.TW; this.canvas.height = ICON.TH;
       this.cx = this.canvas.getContext("2d", { willReadFrequently: true });
@@ -206,7 +208,7 @@
     poll() {
       const iou = this.match();
       if (iou == null) return { plant: false, status: waitingStatus(), debug: null };
-      if (iou >= ICON_IOU) { if (this.run === 0) this.firstAt = performance.now(); this.run++; }
+      if (iou >= this.threshold) { if (this.run === 0) this.firstAt = performance.now(); this.run++; }
       else this.run = 0;
       const debug = { mode: "valo", iou, run: this.run };
       if (this.run >= CONFIRM_K) return { plant: true, plantTime: this.firstAt, debug };
@@ -230,7 +232,7 @@
   // match rejects the red "ROUND WIN" banner (red, but no C4 symbol).
   class CS2Game extends Game {
     constructor() {
-      super({ fuse: 40, label: "CS2", redAt: 5, yellowAt: 10 });
+      super({ fuse: 40, label: "CS2", redAt: 5, yellowAt: 10, threshold: CS_ICON_IOU, cooldownMs: COOLDOWN_MS });
       this.canvas = document.createElement("canvas");
       this.canvas.width = CS_BW; this.canvas.height = CS_BOMB.TH;
       this.cx = this.canvas.getContext("2d", { willReadFrequently: true });
@@ -296,7 +298,7 @@
       const digitsGone = this.armed && this.baseline > 0.08 && c.white < 0.5 * this.baseline;
       if (digitsGone) { if (this.dgRun === 0) this.firstGoneAt = performance.now(); this.dgRun++; } else this.dgRun = 0;
       const bs = this.scan();
-      if (digitsGone && bs.iou >= CS_ICON_IOU && bs.side) this.run++; else this.run = 0;
+      if (digitsGone && bs.iou >= this.threshold && bs.side) this.run++; else this.run = 0;
       const debug = {
         mode: "cs2", white: c.white, base: this.baseline, gone: digitsGone,
         scanIoU: bs.iou, scanRed: bs.red, side: bs.side || "-", run: this.run,
@@ -464,7 +466,7 @@
     onDefused() {
       this.stopRender();
       this.planted = false; this.goneCount = 0; this.monIoU = null; dbg = null;
-      this.cooldownUntil = performance.now() + COOLDOWN_MS;   // skip the replay
+      this.cooldownUntil = performance.now() + GAMES[cfg.game].cooldownMs;   // skip the replay
       overlay.set(cfg.game === "cs2" ? "Bomb defused / cleared" : "Spike defused / cleared", null, "#22d3ee");
       setTimeout(() => { this.reset(true); if (cfg.running) overlay.set("Watching for plant…", null); }, 2500);
     }
@@ -480,7 +482,7 @@
       const rem = this.detonateAt - performance.now();
       if (rem <= 0) {
         overlay.set("DETONATED", 0, "#ef4444");
-        this.cooldownUntil = performance.now() + COOLDOWN_MS;   // skip the replay
+        this.cooldownUntil = performance.now() + GAMES[cfg.game].cooldownMs;   // skip the replay
         setTimeout(() => { this.reset(true); }, 2500);
         this.stopRender();
         return;
@@ -600,7 +602,7 @@
       if (secs == null && dbg) {
         const f = (x) => x == null ? "–" : x.toFixed(3);
         const body = dbg.mode === "valo"
-          ? `iconIoU=${f(dbg.iou)} (need ≥${ICON_IOU})<br>${dbg.iou >= ICON_IOU ? "ICON✓" : "no-icon"}`
+          ? `iconIoU=${f(dbg.iou)} (need ≥${GAMES[cfg.game].threshold})<br>${dbg.iou >= GAMES[cfg.game].threshold ? "ICON✓" : "no-icon"}`
           : `${dbg.gone ? "GONE" : "digits"} (w=${f(dbg.white)})<br>scan iou=${f(dbg.scanIoU)} red=${f(dbg.scanRed)}<br>bomb=${dbg.side}`;
         el.dbg.innerHTML = `${body}<br>plantRun=${dbg.run}/${CONFIRM_K}`;
       } else {
@@ -702,7 +704,22 @@
     else if (msg.type === "DT_START") { cfg.game = msg.game || cfg.game; detector.start(); }
     else if (msg.type === "DT_STOP") { detector.stop(); }
     else if (msg.type === "DT_PLANT") { if (!cfg.running) detector.start(); detector.triggerPlant("manual"); }
+    else if (msg.type === "DT_SET_SETTINGS") { applySettings(msg.game, msg); }
     else if (msg.type === "DT_STATE") { send({ running: cfg.running, game: cfg.game, tainted: frames.tainted }); return true; }
     send && send({ ok: true });
   });
+
+  // Per-game user settings (sliders): detection threshold + post-round cooldown.
+  // Defaults live on the Game instances; this only overrides when a value is set.
+  function applySettings(game, s) {
+    const g = GAMES[game];
+    if (!g || !s) return;
+    if (typeof s.threshold === "number") g.threshold = s.threshold;
+    if (typeof s.cooldown === "number") g.cooldownMs = s.cooldown * 1000;   // slider is in seconds
+  }
+  try {
+    chrome.storage.local.get("settings").then(({ settings }) => {
+      if (settings) for (const k of ["valorant", "cs2"]) applySettings(k, settings[k]);
+    });
+  } catch (e) { /* storage unavailable */ }
 })();

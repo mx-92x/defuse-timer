@@ -12,6 +12,10 @@
     select, button { width: 100%; box-sizing: border-box; border-radius: 8px;
       border: 0; padding: 9px; font-size: 13px; cursor: pointer; }
     select { background: #1e293b; color: #e5e7eb; }
+    input[type=range] { width: 100%; box-sizing: border-box; margin: 2px 0;
+      accent-color: #0ea5e9; cursor: pointer; }
+    .val { color: #e5e7eb; font-weight: 600; }
+    .hint { font-size: 10px; color: #64748b; margin-top: 2px; }
     .row { display: flex; gap: 8px; margin-top: 10px; }
     .row button { flex: 1; }
     #start { background: #22c55e; color: #052e16; font-weight: 700; }
@@ -29,6 +33,14 @@
     <option value="valorant">Valorant (45s spike)</option>
     <option value="cs2">CS2 (40s bomb)</option>
   </select>
+
+  <label for="threshold">Detection threshold <span id="thVal" class="val"></span></label>
+  <input type="range" id="threshold">
+  <div class="hint">higher = stricter (fewer false triggers)</div>
+
+  <label for="cooldown">Round cooldown <span id="cdVal" class="val"></span></label>
+  <input type="range" id="cooldown" min="0" max="40" step="1">
+  <div class="hint">post-round seconds that ignore replays</div>
 
   <div class="row">
     <button id="start">Start watching</button>
