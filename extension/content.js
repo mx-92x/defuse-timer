@@ -55,12 +55,6 @@
   const GONE_K = 6;
 
   const cfg = { game: "valorant", running: false };
-  let armed = false;        // have we seen timer digits (we're in a live round)?
-  let baseline = 0;         // rolling max white-fraction while digits show
-  let plantRun = 0;         // consecutive ticks meeting the full plant condition
-  let firstPlantAt = 0;     // when the plant condition first held (= plant time)
-  let firstDigitsGoneAt = 0;// CS2: when the timer digits first vanished (= plant)
-  let dgRun = 0;            // CS2: consecutive ticks the digits have been gone
   let cooldownUntil = 0;    // suppress detection until this time (post-round)
   let planted = false;
   let goneCount = 0;        // consecutive ticks the indicator is absent (defuse)
@@ -69,7 +63,7 @@
   let detectTimer = null, renderTimer = null;
 
   let dbg = null;
-  const VERSION = "0.2.12-debug";
+  const VERSION = "0.2.13-debug";
   const TICK_MS = 250;   // sample 4x/sec so confirmation (CONFIRM_K) is fast
 
   // Valorant spike-icon shape templates (30x16 red-masks), extracted from real
@@ -160,7 +154,9 @@
   class Game {
     constructor({ fuse, label, redAt, yellowAt }) {
       this.fuse = fuse; this.label = label; this.redAt = redAt; this.yellowAt = yellowAt;
+      this.run = 0;   // consecutive ticks meeting the full plant condition (confirm)
     }
+    reset(hard) { this.run = 0; }   // hard = also clear round-learned state (subclasses)
   }
 
   // Valorant: the plant shows a red spike ICON in the timer slot. Match its
@@ -172,6 +168,7 @@
       this.canvas = document.createElement("canvas");
       this.canvas.width = ICON.TW; this.canvas.height = ICON.TH;
       this.cx = this.canvas.getContext("2d", { willReadFrequently: true });
+      this.firstAt = 0;   // when the icon first appeared (= plant time)
     }
 
     // IoU of the timer-slot red shape vs the spike-icon template. Drawing the ROI
@@ -211,6 +208,27 @@
       }
       return best;
     }
+
+    // Per-tick detection. Returns { plant, plantTime?, status?, debug }.
+    poll() {
+      const iou = this.match();
+      if (iou == null) return { plant: false, status: waitingStatus(), debug: null };
+      if (iou >= ICON_IOU) { if (this.run === 0) this.firstAt = performance.now(); this.run++; }
+      else this.run = 0;
+      const debug = { mode: "valo", iou, run: this.run };
+      if (this.run >= CONFIRM_K) return { plant: true, plantTime: this.firstAt, debug };
+      return { plant: false, status: "Watching for plant…", debug };
+    }
+
+    // "Still planted?" while counting down. present===null means can't read (skip).
+    // Lenient (>=0.30) so brief washouts over the semi-transparent HUD still count.
+    stillPlanted() {
+      const iou = this.match();
+      if (iou == null) return { present: null };
+      return { present: iou >= 0.30, value: iou };
+    }
+
+    reset(hard) { super.reset(hard); this.firstAt = 0; }
   }
 
   // CS2: a C4 bomb-icon badge appears beside the score bar. Slide the C4 template
@@ -223,6 +241,10 @@
       this.canvas = document.createElement("canvas");
       this.canvas.width = CS_BW; this.canvas.height = CS_BOMB.TH;
       this.cx = this.canvas.getContext("2d", { willReadFrequently: true });
+      this.armed = false;     // have we seen timer digits (we're in a live round)?
+      this.baseline = 0;      // rolling max white-fraction while digits show
+      this.dgRun = 0;         // consecutive ticks the digits have been gone
+      this.firstGoneAt = 0;   // when the digits first vanished (= plant time)
     }
 
     // Best match { iou, side, red }: white-mask IoU of the C4 symbol vs template,
@@ -269,6 +291,39 @@
         }
       }
       return { iou: best, side: bestP < 0 ? null : (bestP < (BW - TW) / 2 ? "L" : "R"), red: bestRed };
+    }
+
+    // Per-tick detection: timer digits DISAPPEAR (-> dash) AND the C4 badge is
+    // present on either side. Digits-gone gives accurate timing (anchored to when
+    // they first vanished); the C4 SHAPE rejects the red "ROUND WIN" banner.
+    poll() {
+      const c = frames.sample(CS_TIMER_ROI);
+      if (!c) return { plant: false, status: waitingStatus(), debug: null };
+      if (c.white > 0.08) { this.armed = true; this.baseline = Math.max(this.baseline * 0.95, c.white); }
+      const digitsGone = this.armed && this.baseline > 0.08 && c.white < 0.5 * this.baseline;
+      if (digitsGone) { if (this.dgRun === 0) this.firstGoneAt = performance.now(); this.dgRun++; } else this.dgRun = 0;
+      const bs = this.scan();
+      if (digitsGone && bs.iou >= CS_ICON_IOU && bs.side) this.run++; else this.run = 0;
+      const debug = {
+        mode: "cs2", white: c.white, base: this.baseline, gone: digitsGone,
+        scanIoU: bs.iou, scanRed: bs.red, side: bs.side || "-", run: this.run,
+      };
+      if (this.run >= CONFIRM_K) return { plant: true, plantTime: this.firstGoneAt, debug };
+      return { plant: false, status: this.armed ? "Watching for plant…" : "Waiting for round HUD…", debug };
+    }
+
+    // "Still planted?" — C4 SHAPE only (NOT red: a defuse shows a red "ROUND WIN"
+    // banner here, which would keep it falsely "present"). Defused ~0.13 vs
+    // planted 0.4–1.0, so 0.18 + the GONE_K debounce separates them.
+    stillPlanted() {
+      const bs = this.scan();
+      return { present: bs.iou > 0.18, value: bs.iou };
+    }
+
+    reset(hard) {
+      super.reset(hard);
+      this.dgRun = 0; this.firstGoneAt = 0;
+      if (hard) { this.armed = false; this.baseline = 0; }
     }
   }
 
@@ -331,62 +386,29 @@
   const boxes = new DebugBoxes();
 
   // ---- detection loop -------------------------------------------------------
+  // Status shown when we can't read a frame (no video yet, or cross-origin taint).
+  function waitingStatus() {
+    return frames.tainted
+      ? "Can't read this player's pixels (cross-origin). Use the manual trigger."
+      : "Waiting for stream…";
+  }
+
   function detectTick() {
     if (!cfg.running) return;
     panel.paintScore();
     if (planted) { monitorPlant(); return; }
+    const game = GAMES[cfg.game];
     if (performance.now() < cooldownUntil) {
-      plantRun = 0; dgRun = 0;
+      game.reset(false);                 // clear confirm counters; keep baseline
       overlay.set("Post-round cooldown…", null);
       return;
     }
     boxes.update();
-
-    if (cfg.game === "valorant") {
-      // Valorant: match the spike-icon SHAPE in the timer slot. This rejects the
-      // red low-time round-timer (also red, but digit-shaped -> low IoU).
-      const iou = GAMES[cfg.game].match();
-      if (iou == null) {
-        overlay.set(frames.tainted
-          ? "Can't read this player's pixels (cross-origin). Use the manual trigger."
-          : "Waiting for stream…", null);
-        return;
-      }
-      if (iou >= ICON_IOU) {
-        if (plantRun === 0) firstPlantAt = performance.now();
-        plantRun++;
-      } else plantRun = 0;
-      dbg = { mode: "valo", iou, run: plantRun };
-      if (plantRun >= CONFIRM_K) return triggerPlant("auto", firstPlantAt);
-      overlay.set("Watching for plant…", null);
-      return;
-    }
-
-    // CS2: timer digits DISAPPEAR (-> dash) AND the bomb-icon badge (C4 shape on
-    // a red box) is present on EITHER side. Digits-gone gives accurate timing
-    // (anchored to when they first vanished, not when the badge solidifies); the
-    // C4 SHAPE check rejects the red "ROUND WIN" banner. Cooldown above guards
-    // the post-round replay.
-    const c = frames.sample(CS_TIMER_ROI);
-    if (!c) {
-      overlay.set(frames.tainted
-        ? "Can't read this player's pixels (cross-origin). Use the manual trigger."
-        : "Waiting for stream…", null);
-      return;
-    }
-    if (c.white > 0.08) { armed = true; baseline = Math.max(baseline * 0.95, c.white); }
-    const digitsGone = armed && baseline > 0.08 && c.white < 0.5 * baseline;
-    if (digitsGone) { if (dgRun === 0) firstDigitsGoneAt = performance.now(); dgRun++; } else dgRun = 0;
-
-    const bs = GAMES[cfg.game].scan();
-    if (digitsGone && bs.iou >= CS_ICON_IOU && bs.side) plantRun++; else plantRun = 0;
-    dbg = {
-      mode: "cs2", white: c.white, base: baseline, gone: digitsGone,
-      scanIoU: bs.iou, scanRed: bs.red, side: bs.side || "-", run: plantRun,
-    };
-    if (plantRun >= CONFIRM_K) return triggerPlant("auto", firstDigitsGoneAt);
-
-    overlay.set(armed ? "Watching for plant…" : "Waiting for round HUD…", null);
+    // Each game owns its per-tick detection (icon shape / digits-gone + C4 scan).
+    const r = game.poll();
+    if (r.debug) dbg = r.debug;          // leave dbg stale when a frame can't be read
+    if (r.plant) return triggerPlant("auto", r.plantTime);
+    overlay.set(r.status, null);
   }
 
   function triggerPlant(src, plantTime) {
@@ -404,21 +426,10 @@
   function monitorPlant() {
     const rem = detonateAt - performance.now();
     if (rem <= 1500) { monIoU = null; return; }  // too close to detonation
-    let present;
-    if (cfg.game === "valorant") {
-      const iou = GAMES[cfg.game].match();
-      if (iou == null) return;          // can't read; assume still planted
-      monIoU = iou;
-      present = iou >= 0.30;            // lenient: brief washouts still "present"
-    } else {
-      // "Still planted?" — C4 SHAPE only (NOT red: a defuse shows a red "ROUND
-      // WIN" banner here, which would keep it falsely "present"). Defused reads
-      // ~0.13 vs planted 0.4–1.0, so 0.18 + the GONE_K debounce separates them.
-      const bs = GAMES[cfg.game].scan();
-      monIoU = bs.iou;
-      present = bs.iou > 0.18;
-    }
-    if (!present) goneCount++; else goneCount = 0;
+    const s = GAMES[cfg.game].stillPlanted();
+    if (s.present === null) return;     // can't read; assume still planted
+    monIoU = s.value;
+    if (!s.present) goneCount++; else goneCount = 0;
     if (goneCount >= GONE_K) onDefused();
   }
 
@@ -431,8 +442,9 @@
   }
 
   function reset(toWatching) {
-    planted = false; plantRun = 0; dgRun = 0; goneCount = 0; monIoU = null;
-    if (!toWatching) { armed = false; baseline = 0; }
+    planted = false; goneCount = 0; monIoU = null;
+    // hard reset (!toWatching) also clears each game's round-learned state.
+    for (const g of Object.values(GAMES)) g.reset(!toWatching);
     stopRender();
   }
 
