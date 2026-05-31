@@ -75,8 +75,8 @@
   let detonateAt = 0;
   let detectTimer = null, renderTimer = null;
 
-  let roiBox = null, badgeBox = null, leftBox = null, dbg = null;
-  const VERSION = "0.2.10-debug";
+  let dbg = null;
+  const VERSION = "0.2.11-debug";
   const TICK_MS = 250;   // sample 4x/sec so confirmation (CONFIRM_K) is fast
 
   // Valorant spike-icon shape templates (30x16 red-masks), extracted from real
@@ -253,46 +253,60 @@
   }
 
   // ---- debug ROI overlay ----------------------------------------------------
-  // Maps a video-content ROI (fractions) to on-screen px, accounting for any
-  // letterbox/pillarbox bars inside the <video> element, then draws a box.
-  function mkBox(color) {
-    const b = document.createElement("div");
-    b.style.cssText = `position:fixed;z-index:2147483646;pointer-events:none;border:2px solid ${color};box-shadow:0 0 0 1px rgba(0,0,0,.6);`;
-    document.documentElement.appendChild(b);
-    return b;
-  }
-  function placeBox(b, roi) {
-    const v = frames.getVideo();
-    if (!v || !v.videoWidth) { b.style.display = "none"; return; }
-    const r = v.getBoundingClientRect();
-    const arEl = r.width / r.height, arVid = v.videoWidth / v.videoHeight;
-    let cw, ch, ox, oy;
-    if (arVid > arEl) { cw = r.width; ch = r.width / arVid; ox = 0; oy = (r.height - ch) / 2; }
-    else { ch = r.height; cw = r.height * arVid; oy = 0; ox = (r.width - cw) / 2; }
-    b.style.display = "block";
-    b.style.left = (r.left + ox + roi.x * cw) + "px";
-    b.style.top = (r.top + oy + roi.y * ch) + "px";
-    b.style.width = (roi.w * cw) + "px";
-    b.style.height = (roi.h * ch) + "px";
-  }
-  function updateBoxes() {
-    if (!roiBox) roiBox = mkBox("#22d3ee");
-    if (cfg.game === "cs2") {
-      placeBox(roiBox, CS_TIMER_ROI);
-      if (!badgeBox) badgeBox = mkBox("#f59e0b");
-      placeBox(badgeBox, CS_BAND);
-      if (leftBox) { leftBox.style.display = "none"; }
-    } else {
-      placeBox(roiBox, TIMER_ROI);
-      if (badgeBox) badgeBox.style.display = "none";
-      if (leftBox) leftBox.style.display = "none";
+  // Draws the sampled ROI rectangles over the video (debug build only). Maps a
+  // video-content ROI (fractions) to on-screen px, accounting for letterbox/
+  // pillarbox bars inside the <video> element.
+  class DebugBoxes {
+    constructor() {
+      this.roiBox = null;
+      this.badgeBox = null;
+      this.leftBox = null;
+    }
+
+    mkBox(color) {
+      const b = document.createElement("div");
+      b.style.cssText = `position:fixed;z-index:2147483646;pointer-events:none;border:2px solid ${color};box-shadow:0 0 0 1px rgba(0,0,0,.6);`;
+      document.documentElement.appendChild(b);
+      return b;
+    }
+
+    placeBox(b, roi) {
+      const v = frames.getVideo();
+      if (!v || !v.videoWidth) { b.style.display = "none"; return; }
+      const r = v.getBoundingClientRect();
+      const arEl = r.width / r.height, arVid = v.videoWidth / v.videoHeight;
+      let cw, ch, ox, oy;
+      if (arVid > arEl) { cw = r.width; ch = r.width / arVid; ox = 0; oy = (r.height - ch) / 2; }
+      else { ch = r.height; cw = r.height * arVid; oy = 0; ox = (r.width - cw) / 2; }
+      b.style.display = "block";
+      b.style.left = (r.left + ox + roi.x * cw) + "px";
+      b.style.top = (r.top + oy + roi.y * ch) + "px";
+      b.style.width = (roi.w * cw) + "px";
+      b.style.height = (roi.h * ch) + "px";
+    }
+
+    update() {
+      if (!this.roiBox) this.roiBox = this.mkBox("#22d3ee");
+      if (cfg.game === "cs2") {
+        this.placeBox(this.roiBox, CS_TIMER_ROI);
+        if (!this.badgeBox) this.badgeBox = this.mkBox("#f59e0b");
+        this.placeBox(this.badgeBox, CS_BAND);
+        if (this.leftBox) { this.leftBox.style.display = "none"; }
+      } else {
+        this.placeBox(this.roiBox, TIMER_ROI);
+        if (this.badgeBox) this.badgeBox.style.display = "none";
+        if (this.leftBox) this.leftBox.style.display = "none";
+      }
+    }
+
+    hide() {
+      if (this.roiBox) { this.roiBox.remove(); this.roiBox = null; }
+      if (this.badgeBox) { this.badgeBox.remove(); this.badgeBox = null; }
+      if (this.leftBox) { this.leftBox.remove(); this.leftBox = null; }
     }
   }
-  function hideBoxes() {
-    if (roiBox) { roiBox.remove(); roiBox = null; }
-    if (badgeBox) { badgeBox.remove(); badgeBox = null; }
-    if (leftBox) { leftBox.remove(); leftBox = null; }
-  }
+
+  const boxes = new DebugBoxes();
 
   // ---- detection loop -------------------------------------------------------
   function detectTick() {
@@ -304,7 +318,7 @@
       overlay.set("Post-round cooldown…", null);
       return;
     }
-    updateBoxes();
+    boxes.update();
 
     if (cfg.game === "valorant") {
       // Valorant: match the spike-icon SHAPE in the timer slot. This rejects the
@@ -357,7 +371,7 @@
     if (planted) return;
     planted = true;
     goneCount = 0; monIoU = null;
-    hideBoxes();
+    boxes.hide();
     const t0 = plantTime || performance.now();
     detonateAt = t0 + GAMES[cfg.game].fuse * 1000;
     startRender();
@@ -629,7 +643,7 @@
   function stop() {
     cfg.running = false;
     if (detectTimer) clearInterval(detectTimer); detectTimer = null;
-    stopRender(); reset(false); hideBoxes(); panel.close(); overlay.remove();
+    stopRender(); reset(false); boxes.hide(); panel.close(); overlay.remove();
   }
 
   window.addEventListener("keydown", (e) => {
