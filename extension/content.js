@@ -14,15 +14,8 @@
   if (window.__defuseTimeLoaded) return;
   window.__defuseTimeLoaded = true;
 
-  const GAMES = {
-    // redAt/yellowAt = countdown color thresholds, in seconds REMAINING.
-    //   red when secs <= redAt, yellow when redAt < secs <= yellowAt, else green.
-    // Tied to defuse time: red = "too late to defuse", yellow = "tight".
-    // Valorant defuse = 7s (red = 7, yellow band = next 14s -> 21).
-    // CS2 defuse = 5s (kit) / 10s (no kit); kept at the original 5/10 split.
-    valorant: { fuse: 45, label: "Valorant", redAt: 7, yellowAt: 21 },
-    cs2: { fuse: 40, label: "CS2", redAt: 5, yellowAt: 10 },
-  };
+  // GAMES (per-game config + plant detectors) is defined below as Game
+  // subclasses, after the ROI/template constants those classes depend on.
 
   // Center round-timer slot, as fractions of the video frame (covers the timer
   // digits in both games). Tunable; validated on 720p VCT + CS2 broadcasts.
@@ -76,15 +69,15 @@
   let detectTimer = null, renderTimer = null;
 
   let dbg = null;
-  const VERSION = "0.2.11-debug";
+  const VERSION = "0.2.12-debug";
   const TICK_MS = 250;   // sample 4x/sec so confirmation (CONFIRM_K) is fast
 
   // Valorant spike-icon shape templates (30x16 red-masks), extracted from real
   // plants. Matching the SHAPE (not just "is there red") is what distinguishes
   // the plant from the red low-time round-timer, which is also red in this slot.
   // Broadcasts can render the icon differently (size/style varies per tournament)
-  // so iconMatch() takes the BEST IoU across all templates. Add a new broadcast's
-  // template here once measured from REAL planted frames (tools/ workflow).
+  // so ValorantGame.match() takes the BEST IoU across all templates. Add a new
+  // broadcast's template here once measured from REAL planted frames (tools/).
   const ICON = {
     TW: 30, TH: 16,
     masks: [
@@ -97,16 +90,13 @@
   };
   const ICON_IOU = 0.6;   // plant if best-template IoU >= this (digit red ~0.45)
   const ICON_TPLS = ICON.masks.map((s) => Uint8Array.from(s, (c) => c === "1" ? 1 : 0));
-  let tcanvas = document.createElement("canvas");
-  tcanvas.width = ICON.TW; tcanvas.height = ICON.TH;
-  let tcx = tcanvas.getContext("2d", { willReadFrequently: true });
 
   // ---- video sampling -------------------------------------------------------
   // FrameSampler owns everything that touches the page <video> and the main
   // sampling canvas. ROIs are given as FRACTIONS of the video frame, so sampling
   // is independent of stream resolution and of co-stream/webcam layouts. The
-  // other pixel readers (iconMatch, bombScan, paintScore) still keep their own
-  // small canvases for now; they share this object's getVideo() and `tainted`.
+  // other pixel readers (ValorantGame.match, CS2Game.scan, PopoutPanel) keep
+  // their own small canvases but share this object's getVideo() and `tainted`.
   class FrameSampler {
     constructor() {
       this.canvas = document.createElement("canvas");
@@ -164,93 +154,125 @@
 
   const frames = new FrameSampler();
 
-  // IoU of the timer-slot red shape vs the spike-icon template. Drawing the ROI
-  // to a fixed 30x16 canvas normalizes size across stream resolutions.
-  function iconMatch() {
-    const v = frames.getVideo();
-    if (!v || !v.videoWidth) return null;
-    const vw = v.videoWidth, vh = v.videoHeight;
-    try {
-      tcx.drawImage(v, TIMER_ROI.x * vw, TIMER_ROI.y * vh,
-        TIMER_ROI.w * vw, TIMER_ROI.h * vh, 0, 0, ICON.TW, ICON.TH);
-      var d = tcx.getImageData(0, 0, ICON.TW, ICON.TH).data;
-    } catch (e) { frames.tainted = true; return null; }
-    const N = ICON.TW * ICON.TH;
-    const red = new Uint8Array(N);
-    for (let i = 0; i < N; i++) {
-      const r = d[i * 4] / 255, g = d[i * 4 + 1] / 255, b = d[i * 4 + 2] / 255;
-      const mx = Math.max(r, g, b), mn = Math.min(r, g, b), de = mx - mn;
-      const sat = mx === 0 ? 0 : de / mx;
-      if (de > 0.001) {
-        let h = mx === r ? ((g - b) / de) % 6 : mx === g ? (b - r) / de + 2 : (r - g) / de + 4;
-        h = (h * 60 + 360) % 360;
-        if ((h <= 18 || h >= 342) && sat >= 0.4 && mx >= 0.3) red[i] = 1;
-      }
+  // ---- games ----------------------------------------------------------------
+  // A Game owns one title's plant-detection signal. Both share the countdown
+  // config (fuse + color thresholds); each implements its own pixel matcher.
+  class Game {
+    constructor({ fuse, label, redAt, yellowAt }) {
+      this.fuse = fuse; this.label = label; this.redAt = redAt; this.yellowAt = yellowAt;
     }
-    // Best IoU across all known broadcast templates (handles per-tournament icons).
-    let best = 0;
-    for (const t of ICON_TPLS) {
-      let inter = 0, uni = 0;
-      for (let i = 0; i < N; i++) {
-        if (red[i] & t[i]) inter++;
-        if (red[i] | t[i]) uni++;
-      }
-      const iou = uni > 0 ? inter / uni : 0;
-      if (iou > best) best = iou;
-    }
-    return best;
   }
 
-  // CS2 bomb-icon box: returns {red, iou} — red fill of the box + white-mask IoU
-  // of the C4 symbol vs template. A real PLANTED badge has both; the "ROUND WIN"
-  // banner is red but has no C4 symbol (low iou).
-  let bcanvas = document.createElement("canvas");
-  bcanvas.width = CS_BW; bcanvas.height = CS_BOMB.TH;
-  let bcx = bcanvas.getContext("2d", { willReadFrequently: true });
-  // Slide the C4 template (and its mirror) across the band; return the best
-  // match: { iou, side, red }. Position-independent, side-independent.
-  function bombScan() {
-    const v = frames.getVideo();
-    if (!v || !v.videoWidth) return { iou: 0, side: null, red: 0 };
-    const vw = v.videoWidth, vh = v.videoHeight, TW = CS_BOMB.TW, TH = CS_BOMB.TH, BW = CS_BW;
-    try {
-      bcx.drawImage(v, CS_BAND.x * vw, CS_BAND.y * vh, CS_BAND.w * vw, CS_BAND.h * vh, 0, 0, BW, TH);
-      var data = bcx.getImageData(0, 0, BW, TH).data;
-    } catch (e) { frames.tainted = true; return { iou: 0, side: null, red: 0 }; }
-    const white = new Uint8Array(BW * TH), red = new Uint8Array(BW * TH);
-    for (let i = 0; i < BW * TH; i++) {
-      const r = data[i * 4] / 255, g = data[i * 4 + 1] / 255, b = data[i * 4 + 2] / 255;
-      const mx = Math.max(r, g, b), mn = Math.min(r, g, b), de = mx - mn;
-      const sat = mx === 0 ? 0 : de / mx;
-      if (mx >= 0.65 && sat <= 0.35) white[i] = 1;
-      if (de > 0.001) {   // STRICT red (excludes orange score/logos)
-        let h = mx === r ? ((g - b) / de) % 6 : mx === g ? (b - r) / de + 2 : (r - g) / de + 4;
-        h = (h * 60 + 360) % 360;
-        if ((h <= 20 || h >= 340) && sat >= 0.4 && mx >= 0.3) red[i] = 1;
-      }
+  // Valorant: the plant shows a red spike ICON in the timer slot. Match its
+  // SHAPE (best IoU vs the embedded templates), NOT just "is there red", so the
+  // red low-time round-timer (also red, but digit-shaped) doesn't false-fire.
+  class ValorantGame extends Game {
+    constructor() {
+      super({ fuse: 45, label: "Valorant", redAt: 7, yellowAt: 21 });
+      this.canvas = document.createElement("canvas");
+      this.canvas.width = ICON.TW; this.canvas.height = ICON.TH;
+      this.cx = this.canvas.getContext("2d", { willReadFrequently: true });
     }
-    let best = 0, bestP = -1, bestRed = 0;
-    for (let p = 0; p <= BW - TW; p++) {
-      let rsum = 0;
-      for (let ty = 0; ty < TH; ty++)
-        for (let tx = 0; tx < TW; tx++) rsum += red[ty * BW + p + tx];
-      const rfrac = rsum / (TW * TH);
-      if (rfrac < 0.15) continue;   // the icon sits on a red box
-      for (let m = 0; m < 2; m++) {
-        const mask = m === 0 ? CS_MASK : CS_MASK_M;
+
+    // IoU of the timer-slot red shape vs the spike-icon template. Drawing the ROI
+    // to a fixed 30x16 canvas normalizes size across stream resolutions.
+    match() {
+      const v = frames.getVideo();
+      if (!v || !v.videoWidth) return null;
+      const vw = v.videoWidth, vh = v.videoHeight;
+      let d;
+      try {
+        this.cx.drawImage(v, TIMER_ROI.x * vw, TIMER_ROI.y * vh,
+          TIMER_ROI.w * vw, TIMER_ROI.h * vh, 0, 0, ICON.TW, ICON.TH);
+        d = this.cx.getImageData(0, 0, ICON.TW, ICON.TH).data;
+      } catch (e) { frames.tainted = true; return null; }
+      const N = ICON.TW * ICON.TH;
+      const red = new Uint8Array(N);
+      for (let i = 0; i < N; i++) {
+        const r = d[i * 4] / 255, g = d[i * 4 + 1] / 255, b = d[i * 4 + 2] / 255;
+        const mx = Math.max(r, g, b), mn = Math.min(r, g, b), de = mx - mn;
+        const sat = mx === 0 ? 0 : de / mx;
+        if (de > 0.001) {
+          let h = mx === r ? ((g - b) / de) % 6 : mx === g ? (b - r) / de + 2 : (r - g) / de + 4;
+          h = (h * 60 + 360) % 360;
+          if ((h <= 18 || h >= 342) && sat >= 0.4 && mx >= 0.3) red[i] = 1;
+        }
+      }
+      // Best IoU across all known broadcast templates (handles per-tournament icons).
+      let best = 0;
+      for (const t of ICON_TPLS) {
         let inter = 0, uni = 0;
-        for (let ty = 0; ty < TH; ty++)
-          for (let tx = 0; tx < TW; tx++) {
-            const t = mask[ty * TW + tx], w = white[ty * BW + p + tx];
-            if (w && t) inter++;
-            if (w || t) uni++;
-          }
+        for (let i = 0; i < N; i++) {
+          if (red[i] & t[i]) inter++;
+          if (red[i] | t[i]) uni++;
+        }
         const iou = uni > 0 ? inter / uni : 0;
-        if (iou > best) { best = iou; bestP = p; bestRed = rfrac; }
+        if (iou > best) best = iou;
       }
+      return best;
     }
-    return { iou: best, side: bestP < 0 ? null : (bestP < (BW - TW) / 2 ? "L" : "R"), red: bestRed };
   }
+
+  // CS2: a C4 bomb-icon badge appears beside the score bar. Slide the C4 template
+  // (and its mirror) across a band, taking the best match — the badge swaps sides
+  // each half and its x drifts, so a sliding search beats fixed ROIs. The SHAPE
+  // match rejects the red "ROUND WIN" banner (red, but no C4 symbol).
+  class CS2Game extends Game {
+    constructor() {
+      super({ fuse: 40, label: "CS2", redAt: 5, yellowAt: 10 });
+      this.canvas = document.createElement("canvas");
+      this.canvas.width = CS_BW; this.canvas.height = CS_BOMB.TH;
+      this.cx = this.canvas.getContext("2d", { willReadFrequently: true });
+    }
+
+    // Best match { iou, side, red }: white-mask IoU of the C4 symbol vs template,
+    // position- and side-independent (slides the template + its mirror).
+    scan() {
+      const v = frames.getVideo();
+      if (!v || !v.videoWidth) return { iou: 0, side: null, red: 0 };
+      const vw = v.videoWidth, vh = v.videoHeight, TW = CS_BOMB.TW, TH = CS_BOMB.TH, BW = CS_BW;
+      let data;
+      try {
+        this.cx.drawImage(v, CS_BAND.x * vw, CS_BAND.y * vh, CS_BAND.w * vw, CS_BAND.h * vh, 0, 0, BW, TH);
+        data = this.cx.getImageData(0, 0, BW, TH).data;
+      } catch (e) { frames.tainted = true; return { iou: 0, side: null, red: 0 }; }
+      const white = new Uint8Array(BW * TH), red = new Uint8Array(BW * TH);
+      for (let i = 0; i < BW * TH; i++) {
+        const r = data[i * 4] / 255, g = data[i * 4 + 1] / 255, b = data[i * 4 + 2] / 255;
+        const mx = Math.max(r, g, b), mn = Math.min(r, g, b), de = mx - mn;
+        const sat = mx === 0 ? 0 : de / mx;
+        if (mx >= 0.65 && sat <= 0.35) white[i] = 1;
+        if (de > 0.001) {   // STRICT red (excludes orange score/logos)
+          let h = mx === r ? ((g - b) / de) % 6 : mx === g ? (b - r) / de + 2 : (r - g) / de + 4;
+          h = (h * 60 + 360) % 360;
+          if ((h <= 20 || h >= 340) && sat >= 0.4 && mx >= 0.3) red[i] = 1;
+        }
+      }
+      let best = 0, bestP = -1, bestRed = 0;
+      for (let p = 0; p <= BW - TW; p++) {
+        let rsum = 0;
+        for (let ty = 0; ty < TH; ty++)
+          for (let tx = 0; tx < TW; tx++) rsum += red[ty * BW + p + tx];
+        const rfrac = rsum / (TW * TH);
+        if (rfrac < 0.15) continue;   // the icon sits on a red box
+        for (let m = 0; m < 2; m++) {
+          const mask = m === 0 ? CS_MASK : CS_MASK_M;
+          let inter = 0, uni = 0;
+          for (let ty = 0; ty < TH; ty++)
+            for (let tx = 0; tx < TW; tx++) {
+              const t = mask[ty * TW + tx], w = white[ty * BW + p + tx];
+              if (w && t) inter++;
+              if (w || t) uni++;
+            }
+          const iou = uni > 0 ? inter / uni : 0;
+          if (iou > best) { best = iou; bestP = p; bestRed = rfrac; }
+        }
+      }
+      return { iou: best, side: bestP < 0 ? null : (bestP < (BW - TW) / 2 ? "L" : "R"), red: bestRed };
+    }
+  }
+
+  const GAMES = { valorant: new ValorantGame(), cs2: new CS2Game() };
 
   // ---- debug ROI overlay ----------------------------------------------------
   // Draws the sampled ROI rectangles over the video (debug build only). Maps a
@@ -323,7 +345,7 @@
     if (cfg.game === "valorant") {
       // Valorant: match the spike-icon SHAPE in the timer slot. This rejects the
       // red low-time round-timer (also red, but digit-shaped -> low IoU).
-      const iou = iconMatch();
+      const iou = GAMES[cfg.game].match();
       if (iou == null) {
         overlay.set(frames.tainted
           ? "Can't read this player's pixels (cross-origin). Use the manual trigger."
@@ -356,7 +378,7 @@
     const digitsGone = armed && baseline > 0.08 && c.white < 0.5 * baseline;
     if (digitsGone) { if (dgRun === 0) firstDigitsGoneAt = performance.now(); dgRun++; } else dgRun = 0;
 
-    const bs = bombScan();
+    const bs = GAMES[cfg.game].scan();
     if (digitsGone && bs.iou >= CS_ICON_IOU && bs.side) plantRun++; else plantRun = 0;
     dbg = {
       mode: "cs2", white: c.white, base: baseline, gone: digitsGone,
@@ -384,7 +406,7 @@
     if (rem <= 1500) { monIoU = null; return; }  // too close to detonation
     let present;
     if (cfg.game === "valorant") {
-      const iou = iconMatch();
+      const iou = GAMES[cfg.game].match();
       if (iou == null) return;          // can't read; assume still planted
       monIoU = iou;
       present = iou >= 0.30;            // lenient: brief washouts still "present"
@@ -392,7 +414,7 @@
       // "Still planted?" — C4 SHAPE only (NOT red: a defuse shows a red "ROUND
       // WIN" banner here, which would keep it falsely "present"). Defused reads
       // ~0.13 vs planted 0.4–1.0, so 0.18 + the GONE_K debounce separates them.
-      const bs = bombScan();
+      const bs = GAMES[cfg.game].scan();
       monIoU = bs.iou;
       present = bs.iou > 0.18;
     }
