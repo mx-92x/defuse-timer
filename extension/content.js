@@ -75,10 +75,8 @@
   let detonateAt = 0;
   let detectTimer = null, renderTimer = null;
 
-  let hud = null;
   let roiBox = null, badgeBox = null, leftBox = null, dbg = null;
-  let drag = { on: false, dx: 0, dy: 0 };
-  const VERSION = "0.2.9-debug";
+  const VERSION = "0.2.10-debug";
   const TICK_MS = 250;   // sample 4x/sec so confirmation (CONFIRM_K) is fast
 
   // Valorant spike-icon shape templates (30x16 red-masks), extracted from real
@@ -303,7 +301,7 @@
     if (planted) { monitorPlant(); return; }
     if (performance.now() < cooldownUntil) {
       plantRun = 0; dgRun = 0;
-      setHud("Post-round cooldown…", null);
+      overlay.set("Post-round cooldown…", null);
       return;
     }
     updateBoxes();
@@ -313,7 +311,7 @@
       // red low-time round-timer (also red, but digit-shaped -> low IoU).
       const iou = iconMatch();
       if (iou == null) {
-        setHud(frames.tainted
+        overlay.set(frames.tainted
           ? "Can't read this player's pixels (cross-origin). Use the manual trigger."
           : "Waiting for stream…", null);
         return;
@@ -324,7 +322,7 @@
       } else plantRun = 0;
       dbg = { mode: "valo", iou, run: plantRun };
       if (plantRun >= CONFIRM_K) return triggerPlant("auto", firstPlantAt);
-      setHud("Watching for plant…", null);
+      overlay.set("Watching for plant…", null);
       return;
     }
 
@@ -335,7 +333,7 @@
     // the post-round replay.
     const c = frames.sample(CS_TIMER_ROI);
     if (!c) {
-      setHud(frames.tainted
+      overlay.set(frames.tainted
         ? "Can't read this player's pixels (cross-origin). Use the manual trigger."
         : "Waiting for stream…", null);
       return;
@@ -352,7 +350,7 @@
     };
     if (plantRun >= CONFIRM_K) return triggerPlant("auto", firstDigitsGoneAt);
 
-    setHud(armed ? "Watching for plant…" : "Waiting for round HUD…", null);
+    overlay.set(armed ? "Watching for plant…" : "Waiting for round HUD…", null);
   }
 
   function triggerPlant(src, plantTime) {
@@ -392,8 +390,8 @@
     stopRender();
     planted = false; goneCount = 0; monIoU = null; dbg = null;
     cooldownUntil = performance.now() + COOLDOWN_MS;   // skip the replay
-    setHud(cfg.game === "cs2" ? "Bomb defused / cleared" : "Spike defused / cleared", null, "#22d3ee");
-    setTimeout(() => { reset(true); if (cfg.running) setHud("Watching for plant…", null); }, 2500);
+    overlay.set(cfg.game === "cs2" ? "Bomb defused / cleared" : "Spike defused / cleared", null, "#22d3ee");
+    setTimeout(() => { reset(true); if (cfg.running) overlay.set("Watching for plant…", null); }, 2500);
   }
 
   function reset(toWatching) {
@@ -413,7 +411,7 @@
   function renderCountdown() {
     const rem = detonateAt - performance.now();
     if (rem <= 0) {
-      setHud("DETONATED", 0, "#ef4444");
+      overlay.set("DETONATED", 0, "#ef4444");
       cooldownUntil = performance.now() + COOLDOWN_MS;   // skip the replay
       setTimeout(() => { reset(true); }, 2500);
       stopRender();
@@ -424,110 +422,132 @@
     const color = secs > g.yellowAt ? "#22c55e" : secs > g.redAt ? "#eab308" : "#ef4444";
     const label = (cfg.game === "cs2" ? "BOMB PLANTED" : "SPIKE PLANTED")
       + (monIoU != null ? `  · ${monIoU.toFixed(2)}` : "");
-    setHud(label, secs, color);
+    overlay.set(label, secs, color);
   }
 
   // ---- overlay HUD ----------------------------------------------------------
-  // Build the overlay ONCE with stable elements + button handlers; per-tick
-  // updates only touch text/styles. (Rebuilding innerHTML each tick was
-  // destroying the buttons mid-click, so clicks didn't register.)
-  let el = {};
-  function ensureHud() {
-    if (hud) return;
-    hud = document.createElement("div");
-    hud.id = "defuse-time-hud";
-    hud.style.cssText = [
-      "position:fixed", "right:18px", "bottom:18px", "z-index:2147483647",
-      "min-width:200px", "background:rgba(15,23,42,.92)", "color:#e5e7eb",
-      "border:1px solid rgba(51,65,85,.9)", "border-radius:12px",
-      "padding:12px 14px", "font:13px/1.4 'Segoe UI',system-ui,sans-serif",
-      "box-shadow:0 12px 34px rgba(0,0,0,.45)", "cursor:move",
-      "user-select:none",
-    ].join(";");
-    hud.innerHTML = `
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:8px;">
-        <b>Defuse Time</b>
-        <span style="display:flex;align-items:center;gap:8px;">
-          <span id="dt-label" style="font-size:11px;color:#94a3b8;"></span>
-          <button id="dt-close" title="Close (stop watching)" style="border:0;border-radius:6px;width:20px;height:20px;line-height:1;background:#334155;color:#e5e7eb;cursor:pointer;font-size:13px;">×</button>
-        </span>
-      </div>
-      <div id="dt-status" style="color:#94a3b8;margin-bottom:2px;"></div>
-      <div id="dt-big" style="font-size:28px;font-weight:700;"></div>
-      <div style="margin-top:8px;height:6px;background:#1e293b;border-radius:999px;overflow:hidden;">
-        <div id="dt-bar" style="height:100%;width:0%;background:#475569;transition:width 80ms linear;"></div>
-      </div>
-      <div id="dt-dbg" style="margin-top:6px;font:11px/1.5 monospace;color:#7dd3fc;"></div>
-      <div style="margin-top:10px;display:flex;gap:6px;">
-        <button id="dt-plant" style="flex:1;border:0;border-radius:7px;padding:6px;background:#ef4444;color:#111;font-weight:700;cursor:pointer;">Plant now</button>
-        <button id="dt-cancel" style="flex:1;border:0;border-radius:7px;padding:6px;background:#334155;color:#e5e7eb;cursor:pointer;">Reset</button>
-      </div>
-      <button id="dt-pip" style="margin-top:6px;width:100%;border:0;border-radius:7px;padding:6px;background:#0ea5e9;color:#04293b;font-weight:600;cursor:pointer;">⧉ Pop out panel</button>
-      <div style="margin-top:6px;font-size:11px;color:#64748b;">Hotkeys: Alt+P plant · Alt+C reset · Alt+X close</div>`;
-    document.documentElement.appendChild(hud);
-    el = {
-      label: hud.querySelector("#dt-label"), status: hud.querySelector("#dt-status"),
-      big: hud.querySelector("#dt-big"), bar: hud.querySelector("#dt-bar"),
-      dbg: hud.querySelector("#dt-dbg"),
-    };
-    hud.querySelector("#dt-plant").onclick = () => triggerPlant("manual");
-    hud.querySelector("#dt-cancel").onclick = () => { reset(true); setHud("Watching for plant…", null); };
-    hud.querySelector("#dt-close").onclick = () => stop();
-    hud.querySelector("#dt-pip").onclick = () => panel.open();
-
-    // Drag to move (anywhere except the buttons). Position is persisted.
-    hud.addEventListener("mousedown", (e) => {
-      if (e.button !== 0 || e.target.tagName === "BUTTON") return;
-      const r = hud.getBoundingClientRect();
-      drag.on = true; drag.dx = e.clientX - r.left; drag.dy = e.clientY - r.top;
-      e.preventDefault();
-    });
-    // Restore saved position.
-    try {
-      chrome.storage.local.get("hudPos").then(({ hudPos }) => {
-        if (hudPos && hud) placeHud(hudPos.left, hudPos.top);
+  // The bottom-right countdown card. Built ONCE with stable elements + button
+  // handlers; per-tick updates only touch text/styles (rebuilding innerHTML each
+  // tick was destroying buttons mid-click). Draggable; position is persisted.
+  class Overlay {
+    constructor() {
+      this.hud = null;
+      this.el = {};
+      this.drag = { on: false, dx: 0, dy: 0 };
+      // Drag handled at the window level so the pointer can leave the card.
+      window.addEventListener("mousemove", (e) => {
+        if (!this.drag.on || !this.hud) return;
+        this.place(e.clientX - this.drag.dx, e.clientY - this.drag.dy);
       });
-    } catch (e) { /* storage may be unavailable */ }
-  }
-
-  function placeHud(left, top) {
-    const r = hud.getBoundingClientRect();
-    const x = Math.max(4, Math.min(window.innerWidth - r.width - 4, left));
-    const y = Math.max(4, Math.min(window.innerHeight - r.height - 4, top));
-    hud.style.left = x + "px"; hud.style.top = y + "px";
-    hud.style.right = "auto"; hud.style.bottom = "auto";
-  }
-
-  function setHud(status, secs, color) {
-    ensureHud();
-    const fuse = GAMES[cfg.game].fuse;
-    const pct = secs == null ? 0 : Math.max(0, Math.min(1, secs / fuse));
-    const bigTxt = secs == null ? "—" : secs.toFixed(1) + "s";
-    el.label.textContent = `${GAMES[cfg.game].label} · ${VERSION}`;
-    el.status.textContent = status;
-    el.big.textContent = bigTxt;
-    el.big.style.color = color || "#e5e7eb";
-    el.bar.style.width = (pct * 100).toFixed(1) + "%";
-    el.bar.style.background = color || "#475569";
-    // Mirror to the pop-out panel if open.
-    panel.update(status, bigTxt, color, pct);
-    if (secs == null && dbg) {
-      const f = (x) => x == null ? "–" : x.toFixed(3);
-      const body = dbg.mode === "valo"
-        ? `iconIoU=${f(dbg.iou)} (need ≥${ICON_IOU})<br>${dbg.iou >= ICON_IOU ? "ICON✓" : "no-icon"}`
-        : `${dbg.gone ? "GONE" : "digits"} (w=${f(dbg.white)})<br>scan iou=${f(dbg.scanIoU)} red=${f(dbg.scanRed)}<br>bomb=${dbg.side}`;
-      el.dbg.innerHTML = `${body}<br>plantRun=${dbg.run}/${CONFIRM_K}`;
-    } else {
-      el.dbg.innerHTML = "";
+      window.addEventListener("mouseup", () => {
+        if (!this.drag.on || !this.hud) return;
+        this.drag.on = false;
+        const r = this.hud.getBoundingClientRect();
+        try { chrome.storage.local.set({ hudPos: { left: r.left, top: r.top } }); } catch (e) {}
+      });
     }
+
+    ensure() {
+      if (this.hud) return;
+      const hud = document.createElement("div");
+      hud.id = "defuse-time-hud";
+      hud.style.cssText = [
+        "position:fixed", "right:18px", "bottom:18px", "z-index:2147483647",
+        "min-width:200px", "background:rgba(15,23,42,.92)", "color:#e5e7eb",
+        "border:1px solid rgba(51,65,85,.9)", "border-radius:12px",
+        "padding:12px 14px", "font:13px/1.4 'Segoe UI',system-ui,sans-serif",
+        "box-shadow:0 12px 34px rgba(0,0,0,.45)", "cursor:move",
+        "user-select:none",
+      ].join(";");
+      hud.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:8px;">
+          <b>Defuse Time</b>
+          <span style="display:flex;align-items:center;gap:8px;">
+            <span id="dt-label" style="font-size:11px;color:#94a3b8;"></span>
+            <button id="dt-close" title="Close (stop watching)" style="border:0;border-radius:6px;width:20px;height:20px;line-height:1;background:#334155;color:#e5e7eb;cursor:pointer;font-size:13px;">×</button>
+          </span>
+        </div>
+        <div id="dt-status" style="color:#94a3b8;margin-bottom:2px;"></div>
+        <div id="dt-big" style="font-size:28px;font-weight:700;"></div>
+        <div style="margin-top:8px;height:6px;background:#1e293b;border-radius:999px;overflow:hidden;">
+          <div id="dt-bar" style="height:100%;width:0%;background:#475569;transition:width 80ms linear;"></div>
+        </div>
+        <div id="dt-dbg" style="margin-top:6px;font:11px/1.5 monospace;color:#7dd3fc;"></div>
+        <div style="margin-top:10px;display:flex;gap:6px;">
+          <button id="dt-plant" style="flex:1;border:0;border-radius:7px;padding:6px;background:#ef4444;color:#111;font-weight:700;cursor:pointer;">Plant now</button>
+          <button id="dt-cancel" style="flex:1;border:0;border-radius:7px;padding:6px;background:#334155;color:#e5e7eb;cursor:pointer;">Reset</button>
+        </div>
+        <button id="dt-pip" style="margin-top:6px;width:100%;border:0;border-radius:7px;padding:6px;background:#0ea5e9;color:#04293b;font-weight:600;cursor:pointer;">⧉ Pop out panel</button>
+        <div style="margin-top:6px;font-size:11px;color:#64748b;">Hotkeys: Alt+P plant · Alt+C reset · Alt+X close</div>`;
+      document.documentElement.appendChild(hud);
+      this.hud = hud;
+      this.el = {
+        label: hud.querySelector("#dt-label"), status: hud.querySelector("#dt-status"),
+        big: hud.querySelector("#dt-big"), bar: hud.querySelector("#dt-bar"),
+        dbg: hud.querySelector("#dt-dbg"),
+      };
+      hud.querySelector("#dt-plant").onclick = () => triggerPlant("manual");
+      hud.querySelector("#dt-cancel").onclick = () => { reset(true); this.set("Watching for plant…", null); };
+      hud.querySelector("#dt-close").onclick = () => stop();
+      hud.querySelector("#dt-pip").onclick = () => panel.open();
+
+      // Drag to move (anywhere except the buttons).
+      hud.addEventListener("mousedown", (e) => {
+        if (e.button !== 0 || e.target.tagName === "BUTTON") return;
+        const r = hud.getBoundingClientRect();
+        this.drag.on = true; this.drag.dx = e.clientX - r.left; this.drag.dy = e.clientY - r.top;
+        e.preventDefault();
+      });
+      // Restore saved position.
+      try {
+        chrome.storage.local.get("hudPos").then(({ hudPos }) => {
+          if (hudPos && this.hud) this.place(hudPos.left, hudPos.top);
+        });
+      } catch (e) { /* storage may be unavailable */ }
+    }
+
+    place(left, top) {
+      const r = this.hud.getBoundingClientRect();
+      const x = Math.max(4, Math.min(window.innerWidth - r.width - 4, left));
+      const y = Math.max(4, Math.min(window.innerHeight - r.height - 4, top));
+      this.hud.style.left = x + "px"; this.hud.style.top = y + "px";
+      this.hud.style.right = "auto"; this.hud.style.bottom = "auto";
+    }
+
+    set(status, secs, color) {
+      this.ensure();
+      const el = this.el;
+      const fuse = GAMES[cfg.game].fuse;
+      const pct = secs == null ? 0 : Math.max(0, Math.min(1, secs / fuse));
+      const bigTxt = secs == null ? "—" : secs.toFixed(1) + "s";
+      el.label.textContent = `${GAMES[cfg.game].label} · ${VERSION}`;
+      el.status.textContent = status;
+      el.big.textContent = bigTxt;
+      el.big.style.color = color || "#e5e7eb";
+      el.bar.style.width = (pct * 100).toFixed(1) + "%";
+      el.bar.style.background = color || "#475569";
+      // Mirror to the pop-out panel if open.
+      panel.update(status, bigTxt, color, pct);
+      if (secs == null && dbg) {
+        const f = (x) => x == null ? "–" : x.toFixed(3);
+        const body = dbg.mode === "valo"
+          ? `iconIoU=${f(dbg.iou)} (need ≥${ICON_IOU})<br>${dbg.iou >= ICON_IOU ? "ICON✓" : "no-icon"}`
+          : `${dbg.gone ? "GONE" : "digits"} (w=${f(dbg.white)})<br>scan iou=${f(dbg.scanIoU)} red=${f(dbg.scanRed)}<br>bomb=${dbg.side}`;
+        el.dbg.innerHTML = `${body}<br>plantRun=${dbg.run}/${CONFIRM_K}`;
+      } else {
+        el.dbg.innerHTML = "";
+      }
+    }
+
+    remove() { if (this.hud) this.hud.remove(); this.hud = null; this.el = {}; }
   }
 
-  function removeHud() { if (hud) hud.remove(); hud = null; el = {}; }
+  const overlay = new Overlay();
 
   // ---- pop-out panel (Document Picture-in-Picture) --------------------------
   // A second-monitor window: the countdown + a LIVE pixel mirror of the
   // score/round bar (no OCR — copied pixels can't misread). Owns its own window
-  // and element refs. setHud() pushes countdown updates here via update().
+  // and element refs. overlay.set() pushes countdown updates here via update().
   class PopoutPanel {
     constructor() {
       this.win = null;
@@ -536,7 +556,7 @@
 
     async open() {
       if (!("documentPictureInPicture" in window)) {
-        setHud("Pop-out needs Chrome 116+ (not supported here)", null);
+        overlay.set("Pop-out needs Chrome 116+ (not supported here)", null);
         return;
       }
       if (this.win) { try { this.win.focus(); } catch (e) {} return; }
@@ -603,35 +623,24 @@
     if (detectTimer) clearInterval(detectTimer);
     cfg.running = true;
     reset(false);
-    setHud("Watching for plant…", null);
+    overlay.set("Watching for plant…", null);
     detectTimer = setInterval(detectTick, TICK_MS);
   }
   function stop() {
     cfg.running = false;
     if (detectTimer) clearInterval(detectTimer); detectTimer = null;
-    stopRender(); reset(false); hideBoxes(); panel.close(); removeHud();
+    stopRender(); reset(false); hideBoxes(); panel.close(); overlay.remove();
   }
 
   window.addEventListener("keydown", (e) => {
     if (!e.altKey) return;
     if (e.code === "KeyP") { e.preventDefault(); if (!cfg.running) start(); triggerPlant("manual"); }
-    if (e.code === "KeyC") { e.preventDefault(); reset(true); if (cfg.running) setHud("Watching for plant…", null); }
+    if (e.code === "KeyC") { e.preventDefault(); reset(true); if (cfg.running) overlay.set("Watching for plant…", null); }
     if (e.code === "KeyX") { e.preventDefault(); stop(); }
   });
 
-  window.addEventListener("mousemove", (e) => {
-    if (!drag.on || !hud) return;
-    placeHud(e.clientX - drag.dx, e.clientY - drag.dy);
-  });
-  window.addEventListener("mouseup", () => {
-    if (!drag.on || !hud) return;
-    drag.on = false;
-    const r = hud.getBoundingClientRect();
-    try { chrome.storage.local.set({ hudPos: { left: r.left, top: r.top } }); } catch (e) {}
-  });
-
   chrome.runtime.onMessage.addListener((msg, _s, send) => {
-    if (msg.type === "DT_SET_GAME") { cfg.game = msg.game; if (cfg.running) setHud("Watching for plant…", null); }
+    if (msg.type === "DT_SET_GAME") { cfg.game = msg.game; if (cfg.running) overlay.set("Watching for plant…", null); }
     else if (msg.type === "DT_START") { cfg.game = msg.game || cfg.game; start(); }
     else if (msg.type === "DT_STOP") { stop(); }
     else if (msg.type === "DT_PLANT") { if (!cfg.running) start(); triggerPlant("manual"); }
