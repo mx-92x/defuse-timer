@@ -55,15 +55,8 @@
   const GONE_K = 6;
 
   const cfg = { game: "valorant", running: false };
-  let cooldownUntil = 0;    // suppress detection until this time (post-round)
-  let planted = false;
-  let goneCount = 0;        // consecutive ticks the indicator is absent (defuse)
-  let monIoU = null;        // live indicator value while counting down (debug)
-  let detonateAt = 0;
-  let detectTimer = null, renderTimer = null;
-
-  let dbg = null;
-  const VERSION = "0.2.13-debug";
+  let dbg = null;           // latest per-tick debug snapshot (read by the overlay)
+  const VERSION = "0.2.14-debug";
   const TICK_MS = 250;   // sample 4x/sec so confirmation (CONFIRM_K) is fast
 
   // Valorant spike-icon shape templates (30x16 red-masks), extracted from real
@@ -393,84 +386,112 @@
       : "Waiting for stream…";
   }
 
-  function detectTick() {
-    if (!cfg.running) return;
-    panel.paintScore();
-    if (planted) { monitorPlant(); return; }
-    const game = GAMES[cfg.game];
-    if (performance.now() < cooldownUntil) {
-      game.reset(false);                 // clear confirm counters; keep baseline
-      overlay.set("Post-round cooldown…", null);
-      return;
+  // The detection state machine + loops. Polls the active game 4x/sec; on a
+  // confirmed plant, anchors the countdown and renders it; while counting down,
+  // watches for a defuse. Owns all the runtime timing state.
+  class Detector {
+    constructor() {
+      this.planted = false;
+      this.detonateAt = 0;
+      this.goneCount = 0;        // consecutive ticks the indicator is absent (defuse)
+      this.monIoU = null;        // live indicator value while counting down (debug)
+      this.cooldownUntil = 0;    // suppress detection until this time (post-round)
+      this.detectTimer = null;
+      this.renderTimer = null;
     }
-    boxes.update();
-    // Each game owns its per-tick detection (icon shape / digits-gone + C4 scan).
-    const r = game.poll();
-    if (r.debug) dbg = r.debug;          // leave dbg stale when a frame can't be read
-    if (r.plant) return triggerPlant("auto", r.plantTime);
-    overlay.set(r.status, null);
-  }
 
-  function triggerPlant(src, plantTime) {
-    if (planted) return;
-    planted = true;
-    goneCount = 0; monIoU = null;
-    boxes.hide();
-    const t0 = plantTime || performance.now();
-    detonateAt = t0 + GAMES[cfg.game].fuse * 1000;
-    startRender();
-  }
-
-  // While counting down, watch the plant indicator. If it's absent for GONE_K
-  // samples and time still remains, the spike was defused (or round ended).
-  function monitorPlant() {
-    const rem = detonateAt - performance.now();
-    if (rem <= 1500) { monIoU = null; return; }  // too close to detonation
-    const s = GAMES[cfg.game].stillPlanted();
-    if (s.present === null) return;     // can't read; assume still planted
-    monIoU = s.value;
-    if (!s.present) goneCount++; else goneCount = 0;
-    if (goneCount >= GONE_K) onDefused();
-  }
-
-  function onDefused() {
-    stopRender();
-    planted = false; goneCount = 0; monIoU = null; dbg = null;
-    cooldownUntil = performance.now() + COOLDOWN_MS;   // skip the replay
-    overlay.set(cfg.game === "cs2" ? "Bomb defused / cleared" : "Spike defused / cleared", null, "#22d3ee");
-    setTimeout(() => { reset(true); if (cfg.running) overlay.set("Watching for plant…", null); }, 2500);
-  }
-
-  function reset(toWatching) {
-    planted = false; goneCount = 0; monIoU = null;
-    // hard reset (!toWatching) also clears each game's round-learned state.
-    for (const g of Object.values(GAMES)) g.reset(!toWatching);
-    stopRender();
-  }
-
-  // ---- countdown render -----------------------------------------------------
-  function startRender() {
-    stopRender();
-    renderTimer = setInterval(renderCountdown, 80);
-    renderCountdown();
-  }
-  function stopRender() { if (renderTimer) clearInterval(renderTimer); renderTimer = null; }
-
-  function renderCountdown() {
-    const rem = detonateAt - performance.now();
-    if (rem <= 0) {
-      overlay.set("DETONATED", 0, "#ef4444");
-      cooldownUntil = performance.now() + COOLDOWN_MS;   // skip the replay
-      setTimeout(() => { reset(true); }, 2500);
-      stopRender();
-      return;
+    start() {
+      if (this.detectTimer) clearInterval(this.detectTimer);
+      cfg.running = true;
+      this.reset(false);
+      overlay.set("Watching for plant…", null);
+      this.detectTimer = setInterval(() => this.tick(), TICK_MS);
     }
-    const secs = rem / 1000;
-    const g = GAMES[cfg.game];
-    const color = secs > g.yellowAt ? "#22c55e" : secs > g.redAt ? "#eab308" : "#ef4444";
-    const label = (cfg.game === "cs2" ? "BOMB PLANTED" : "SPIKE PLANTED")
-      + (monIoU != null ? `  · ${monIoU.toFixed(2)}` : "");
-    overlay.set(label, secs, color);
+
+    stop() {
+      cfg.running = false;
+      if (this.detectTimer) clearInterval(this.detectTimer); this.detectTimer = null;
+      this.stopRender(); this.reset(false); boxes.hide(); panel.close(); overlay.remove();
+    }
+
+    reset(toWatching) {
+      this.planted = false; this.goneCount = 0; this.monIoU = null;
+      // hard reset (!toWatching) also clears each game's round-learned state.
+      for (const g of Object.values(GAMES)) g.reset(!toWatching);
+      this.stopRender();
+    }
+
+    tick() {
+      if (!cfg.running) return;
+      panel.paintScore();
+      if (this.planted) { this.monitorPlant(); return; }
+      const game = GAMES[cfg.game];
+      if (performance.now() < this.cooldownUntil) {
+        game.reset(false);                 // clear confirm counters; keep baseline
+        overlay.set("Post-round cooldown…", null);
+        return;
+      }
+      boxes.update();
+      // Each game owns its per-tick detection (icon shape / digits-gone + C4 scan).
+      const r = game.poll();
+      if (r.debug) dbg = r.debug;          // leave dbg stale when a frame can't be read
+      if (r.plant) return this.triggerPlant("auto", r.plantTime);
+      overlay.set(r.status, null);
+    }
+
+    triggerPlant(src, plantTime) {
+      if (this.planted) return;
+      this.planted = true;
+      this.goneCount = 0; this.monIoU = null;
+      boxes.hide();
+      const t0 = plantTime || performance.now();
+      this.detonateAt = t0 + GAMES[cfg.game].fuse * 1000;
+      this.startRender();
+    }
+
+    // While counting down, watch the plant indicator. If it's absent for GONE_K
+    // samples and time still remains, the spike was defused (or round ended).
+    monitorPlant() {
+      const rem = this.detonateAt - performance.now();
+      if (rem <= 1500) { this.monIoU = null; return; }  // too close to detonation
+      const s = GAMES[cfg.game].stillPlanted();
+      if (s.present === null) return;     // can't read; assume still planted
+      this.monIoU = s.value;
+      if (!s.present) this.goneCount++; else this.goneCount = 0;
+      if (this.goneCount >= GONE_K) this.onDefused();
+    }
+
+    onDefused() {
+      this.stopRender();
+      this.planted = false; this.goneCount = 0; this.monIoU = null; dbg = null;
+      this.cooldownUntil = performance.now() + COOLDOWN_MS;   // skip the replay
+      overlay.set(cfg.game === "cs2" ? "Bomb defused / cleared" : "Spike defused / cleared", null, "#22d3ee");
+      setTimeout(() => { this.reset(true); if (cfg.running) overlay.set("Watching for plant…", null); }, 2500);
+    }
+
+    startRender() {
+      this.stopRender();
+      this.renderTimer = setInterval(() => this.renderCountdown(), 80);
+      this.renderCountdown();
+    }
+    stopRender() { if (this.renderTimer) clearInterval(this.renderTimer); this.renderTimer = null; }
+
+    renderCountdown() {
+      const rem = this.detonateAt - performance.now();
+      if (rem <= 0) {
+        overlay.set("DETONATED", 0, "#ef4444");
+        this.cooldownUntil = performance.now() + COOLDOWN_MS;   // skip the replay
+        setTimeout(() => { this.reset(true); }, 2500);
+        this.stopRender();
+        return;
+      }
+      const secs = rem / 1000;
+      const g = GAMES[cfg.game];
+      const color = secs > g.yellowAt ? "#22c55e" : secs > g.redAt ? "#eab308" : "#ef4444";
+      const label = (cfg.game === "cs2" ? "BOMB PLANTED" : "SPIKE PLANTED")
+        + (this.monIoU != null ? `  · ${this.monIoU.toFixed(2)}` : "");
+      overlay.set(label, secs, color);
+    }
   }
 
   // ---- overlay HUD ----------------------------------------------------------
@@ -534,9 +555,9 @@
         big: hud.querySelector("#dt-big"), bar: hud.querySelector("#dt-bar"),
         dbg: hud.querySelector("#dt-dbg"),
       };
-      hud.querySelector("#dt-plant").onclick = () => triggerPlant("manual");
-      hud.querySelector("#dt-cancel").onclick = () => { reset(true); this.set("Watching for plant…", null); };
-      hud.querySelector("#dt-close").onclick = () => stop();
+      hud.querySelector("#dt-plant").onclick = () => detector.triggerPlant("manual");
+      hud.querySelector("#dt-cancel").onclick = () => { detector.reset(true); this.set("Watching for plant…", null); };
+      hud.querySelector("#dt-close").onclick = () => detector.stop();
       hud.querySelector("#dt-pip").onclick = () => panel.open();
 
       // Drag to move (anywhere except the buttons).
@@ -667,31 +688,20 @@
   const panel = new PopoutPanel();
 
   // ---- control --------------------------------------------------------------
-  function start() {
-    if (detectTimer) clearInterval(detectTimer);
-    cfg.running = true;
-    reset(false);
-    overlay.set("Watching for plant…", null);
-    detectTimer = setInterval(detectTick, TICK_MS);
-  }
-  function stop() {
-    cfg.running = false;
-    if (detectTimer) clearInterval(detectTimer); detectTimer = null;
-    stopRender(); reset(false); boxes.hide(); panel.close(); overlay.remove();
-  }
+  const detector = new Detector();
 
   window.addEventListener("keydown", (e) => {
     if (!e.altKey) return;
-    if (e.code === "KeyP") { e.preventDefault(); if (!cfg.running) start(); triggerPlant("manual"); }
-    if (e.code === "KeyC") { e.preventDefault(); reset(true); if (cfg.running) overlay.set("Watching for plant…", null); }
-    if (e.code === "KeyX") { e.preventDefault(); stop(); }
+    if (e.code === "KeyP") { e.preventDefault(); if (!cfg.running) detector.start(); detector.triggerPlant("manual"); }
+    if (e.code === "KeyC") { e.preventDefault(); detector.reset(true); if (cfg.running) overlay.set("Watching for plant…", null); }
+    if (e.code === "KeyX") { e.preventDefault(); detector.stop(); }
   });
 
   chrome.runtime.onMessage.addListener((msg, _s, send) => {
     if (msg.type === "DT_SET_GAME") { cfg.game = msg.game; if (cfg.running) overlay.set("Watching for plant…", null); }
-    else if (msg.type === "DT_START") { cfg.game = msg.game || cfg.game; start(); }
-    else if (msg.type === "DT_STOP") { stop(); }
-    else if (msg.type === "DT_PLANT") { if (!cfg.running) start(); triggerPlant("manual"); }
+    else if (msg.type === "DT_START") { cfg.game = msg.game || cfg.game; detector.start(); }
+    else if (msg.type === "DT_STOP") { detector.stop(); }
+    else if (msg.type === "DT_PLANT") { if (!cfg.running) detector.start(); detector.triggerPlant("manual"); }
     else if (msg.type === "DT_STATE") { send({ running: cfg.running, game: cfg.game, tainted: frames.tainted }); return true; }
     send && send({ ok: true });
   });
