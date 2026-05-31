@@ -9,6 +9,13 @@ const GAME_CFG = {
 
 let settings = {};   // { valorant: {threshold, cooldown}, cs2: {threshold, cooldown} }
 
+// Paint the slider's filled (cyan) portion up to the current value.
+function setFill(el) {
+  const min = parseFloat(el.min), max = parseFloat(el.max), v = parseFloat(el.value);
+  const pct = max > min ? ((v - min) / (max - min)) * 100 : 0;
+  el.style.setProperty("--pct", pct + "%");
+}
+
 async function tab() {
   const [t] = await chrome.tabs.query({ active: true, currentWindow: true });
   return t;
@@ -43,6 +50,7 @@ function loadSliders(game) {
   $("cooldown").value = cd;
   $("thVal").textContent = Number(th).toFixed(2);
   $("cdVal").textContent = cd + "s";
+  setFill(t); setFill($("cooldown"));
 }
 
 // Save the selected game's slider values and push them to the content script live.
@@ -52,16 +60,18 @@ function applySliders() {
   const cooldown = parseInt($("cooldown").value, 10);
   $("thVal").textContent = threshold.toFixed(2);
   $("cdVal").textContent = cooldown + "s";
+  setFill($("threshold")); setFill($("cooldown"));
   settings[game] = { threshold, cooldown };
   chrome.storage.local.set({ settings });
   send({ type: "DT_SET_SETTINGS", game, threshold, cooldown });
 }
 
 // Boot: load saved game + settings, then populate the sliders.
-chrome.storage.local.get(["game", "settings"]).then(({ game, settings: saved }) => {
+chrome.storage.local.get(["game", "settings", "debug"]).then(({ game, settings: saved, debug }) => {
   settings = saved || {};
   if (game) $("game").value = game;
   loadSliders($("game").value);
+  $("debug").checked = !!debug;
 });
 
 $("game").onchange = () => {
@@ -72,6 +82,11 @@ $("game").onchange = () => {
 };
 $("threshold").oninput = applySliders;
 $("cooldown").oninput = applySliders;
+$("debug").onchange = () => {
+  const on = $("debug").checked;
+  chrome.storage.local.set({ debug: on });
+  send({ type: "DT_SET_DEBUG", on });
+};
 $("start").onclick = async () => { await send({ type: "DT_START", game: $("game").value }); refresh(); };
 $("stop").onclick = async () => { await send({ type: "DT_STOP" }); refresh(); };
 $("plant").onclick = async () => { await send({ type: "DT_PLANT" }); window.close(); };
