@@ -82,6 +82,25 @@
     button:hover { filter: brightness(1.07); }
     button:active { transform: translateY(1px); }
 
+    /* Collapsible "Advanced settings" holding the three tuning sliders */
+    details.adv { margin-bottom: 9px; }
+    details.adv > summary {
+      list-style: none; cursor: pointer; user-select: none;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 12px; border-radius: 12px;
+      background: rgba(148, 163, 184, 0.09);
+      border: 1px solid rgba(148, 163, 184, 0.15);
+      font-size: 12px; font-weight: 600; letter-spacing: 0.2px; color: #cdd6e4;
+    }
+    details.adv > summary::-webkit-details-marker { display: none; }
+    details.adv > summary::after {
+      content: "\25BE"; color: #8b97ad; font-size: 11px;
+      transform: rotate(-90deg); transition: transform .15s;
+    }
+    details.adv[open] > summary { border-radius: 12px 12px 0 0; border-bottom: 0; }
+    details.adv[open] > summary::after { transform: rotate(0); }
+    details.adv .card { margin-bottom: 0; border-radius: 0 0 12px 12px; }
+
     .check { display: flex; align-items: center; gap: 7px; margin-top: 11px;
       font-size: 11px; color: #8b97ad; cursor: pointer; user-select: none; }
     .check input { accent-color: #22d3ee; cursor: pointer; }
@@ -101,16 +120,32 @@
     </select>
   </div>
 
-  <div class="card">
-    <div class="slider">
-      <div class="srow"><span class="sname">Detection threshold</span><span id="thVal" class="val"></span></div>
-      <input type="range" id="threshold">
-    </div>
-    <div class="slider">
-      <div class="srow"><span class="sname">Round cooldown</span><span id="cdVal" class="val"></span></div>
-      <input type="range" id="cooldown" min="0" max="40" step="1">
-    </div>
+  <div class="card field" id="profileCard" style="display:none;">
+    <label for="csProfile">CS2 HUD profile</label>
+    <select id="csProfile">
+      <option value="1">Profile 1 — badge beside score bar</option>
+      <option value="2">Profile 2 — icon in center of bar</option>
+      <option value="3">Profile 3 — player POV (streamer)</option>
+    </select>
   </div>
+
+  <details class="adv">
+    <summary>Advanced settings</summary>
+    <div class="card">
+      <div class="slider">
+        <div class="srow"><span class="sname">Detection threshold</span><span id="thVal" class="val"></span></div>
+        <input type="range" id="threshold">
+      </div>
+      <div class="slider">
+        <div class="srow"><span class="sname">Round cooldown</span><span id="cdVal" class="val"></span></div>
+        <input type="range" id="cooldown" min="0" max="40" step="1">
+      </div>
+      <div class="slider">
+        <div class="srow"><span class="sname">Confirmation delay</span><span id="cfVal" class="val"></span></div>
+        <input type="range" id="confirm" min="0.25" max="6" step="0.25">
+      </div>
+    </div>
+  </details>
 
   <div class="row">
     <button id="start">Start watching</button>
