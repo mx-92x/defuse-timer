@@ -2,9 +2,11 @@ const $ = (id) => document.getElementById(id);
 
 // Per-game slider config: detection-threshold range/default + cooldown default
 // (seconds). Defaults match the validated values baked into content.js.
+// cfDef = confirmation delay (seconds): how long the plant must hold before the
+// countdown shows. Default 0.75s = the original 3-tick confirm window.
 const GAME_CFG = {
-  valorant: { thMin: 0.40, thMax: 0.80, thStep: 0.01, thDef: 0.60, cdDef: 12 },
-  cs2:      { thMin: 0.15, thMax: 0.50, thStep: 0.01, thDef: 0.30, cdDef: 12 },
+  valorant: { thMin: 0.40, thMax: 0.80, thStep: 0.01, thDef: 0.60, cdDef: 12, cfDef: 0.75 },
+  cs2:      { thMin: 0.15, thMax: 0.50, thStep: 0.01, thDef: 0.30, cdDef: 12, cfDef: 0.75 },
 };
 
 let settings = {};   // { valorant: {threshold, cooldown}, cs2: {threshold, cooldown} }
@@ -30,10 +32,16 @@ async function send(msg) {
   }
 }
 
+// The CS2 HUD-profile dropdown is only relevant for CS2.
+function updateProfileVis(game) {
+  $("profileCard").style.display = game === "cs2" ? "" : "none";
+}
+
 async function refresh() {
   const st = await send({ type: "DT_STATE" });
   if (!st) return;
-  if (st.game) { $("game").value = st.game; loadSliders(st.game); }
+  if (st.game) { $("game").value = st.game; loadSliders(st.game); updateProfileVis(st.game); }
+  if (st.csProfile) $("csProfile").value = String(st.csProfile);
   $("status").textContent = st.tainted
     ? "Heads up: can't read this player's pixels — use Plant now (manual)."
     : st.running ? "Watching for the plant…" : "Stopped. Press Start watching.";
@@ -45,12 +53,15 @@ function loadSliders(game) {
   const s = settings[game] || {};
   const th = typeof s.threshold === "number" ? s.threshold : c.thDef;
   const cd = typeof s.cooldown === "number" ? s.cooldown : c.cdDef;
+  const cf = typeof s.confirmDelay === "number" ? s.confirmDelay : c.cfDef;
   const t = $("threshold");
   t.min = c.thMin; t.max = c.thMax; t.step = c.thStep; t.value = th;
   $("cooldown").value = cd;
+  $("confirm").value = cf;
   $("thVal").textContent = Number(th).toFixed(2);
   $("cdVal").textContent = cd + "s";
-  setFill(t); setFill($("cooldown"));
+  $("cfVal").textContent = Number(cf).toFixed(2) + "s";
+  setFill(t); setFill($("cooldown")); setFill($("confirm"));
 }
 
 // Save the selected game's slider values and push them to the content script live.
@@ -58,19 +69,23 @@ function applySliders() {
   const game = $("game").value;
   const threshold = parseFloat($("threshold").value);
   const cooldown = parseInt($("cooldown").value, 10);
+  const confirmDelay = parseFloat($("confirm").value);
   $("thVal").textContent = threshold.toFixed(2);
   $("cdVal").textContent = cooldown + "s";
-  setFill($("threshold")); setFill($("cooldown"));
-  settings[game] = { threshold, cooldown };
+  $("cfVal").textContent = confirmDelay.toFixed(2) + "s";
+  setFill($("threshold")); setFill($("cooldown")); setFill($("confirm"));
+  settings[game] = { threshold, cooldown, confirmDelay };
   chrome.storage.local.set({ settings });
-  send({ type: "DT_SET_SETTINGS", game, threshold, cooldown });
+  send({ type: "DT_SET_SETTINGS", game, threshold, cooldown, confirmDelay });
 }
 
 // Boot: load saved game + settings, then populate the sliders.
-chrome.storage.local.get(["game", "settings", "debug"]).then(({ game, settings: saved, debug }) => {
+chrome.storage.local.get(["game", "settings", "debug", "csProfile"]).then(({ game, settings: saved, debug, csProfile }) => {
   settings = saved || {};
   if (game) $("game").value = game;
+  if (csProfile) $("csProfile").value = String(csProfile);
   loadSliders($("game").value);
+  updateProfileVis($("game").value);
   $("debug").checked = !!debug;
 });
 
@@ -78,10 +93,17 @@ $("game").onchange = () => {
   const game = $("game").value;
   chrome.storage.local.set({ game });
   loadSliders(game);
+  updateProfileVis(game);
   send({ type: "DT_SET_GAME", game });
+};
+$("csProfile").onchange = () => {
+  const profile = parseInt($("csProfile").value, 10);
+  chrome.storage.local.set({ csProfile: profile });
+  send({ type: "DT_SET_PROFILE", profile });
 };
 $("threshold").oninput = applySliders;
 $("cooldown").oninput = applySliders;
+$("confirm").oninput = applySliders;
 $("debug").onchange = () => {
   const on = $("debug").checked;
   chrome.storage.local.set({ debug: on });

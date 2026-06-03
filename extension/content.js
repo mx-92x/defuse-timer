@@ -41,10 +41,37 @@
   for (let yy = 0; yy < CS_BOMB.TH; yy++)
     for (let xx = 0; xx < CS_BOMB.TW; xx++)
       CS_MASK_M[yy * CS_BOMB.TW + xx] = CS_MASK[yy * CS_BOMB.TW + (CS_BOMB.TW - 1 - xx)];
+  // CS2 HUD "Profile 2" (standard/default broadcast HUD, e.g. ESL / IEM): the
+  // round timer sits in the CENTER of the score bar and is REPLACED by a red C4
+  // icon when planted — Valorant-style — rather than Profile 1's badge beside the
+  // bar. Detection here is broadcast-agnostic ON PURPOSE: a fixed icon TEMPLATE
+  // proved per-tournament fragile (ESL's icon sits/scales differently from IEM's,
+  // and these HUDs are semi-transparent so the red is noisy). Instead we use the
+  // signal that holds across tournaments without any template: in this small
+  // center slot the timer DIGITS vanish AND red appears. CS2's round timer never
+  // turns red at low time (unlike Valorant — verified with the user), so "red in
+  // the center slot" can only be the C4 icon, not a low timer. The ROI is wide
+  // enough to contain the icon across broadcasts but excludes the flanking scores.
+  const CS_CENTER_ROI = { x: 0.475, y: 0.05, w: 0.04, h: 0.08 };
+  // "warm" (red+orange) fraction in the slot that = "the C4 icon is there". Uses
+  // warm, not strict red, because broadcasts draw the planted icon differently:
+  // ESL/IEM red (hue ~0–10°), PGL orange/amber (hue ~28–35°). The flanking scores
+  // (incl. an orange T-side score) are OUTSIDE this tight center ROI, so warm is
+  // safe here. Measured planted 0.13–0.49 vs counting/cutaway ~0–0.05.
+  const CS_CENTER_WARM = 0.10;
+  // CS2 HUD "Profile 3" (player POV — a streamer PLAYING, not an observer/broadcast
+  // feed). The in-game round timer sits at the very TOP-CENTER of the screen
+  // (higher than the observer score bar) and is replaced by the red/orange bomb
+  // timer on plant. Same digits-gone + warm logic as Profile 2 — only the ROI
+  // differs. Measured on a FACEIT player stream: timer white ~0.14 while counting
+  // (and it STAYS up through the player's own death/spectate, so digits-gone does
+  // NOT false-fire on death) → ~0.03 at plant, with warm 0.17–0.32 in the slot.
+  const CS_PLAYER_ROI = { x: 0.47, y: 0.008, w: 0.06, h: 0.034 };
   const COOLDOWN_MS = 12000;   // suppress detection right after a round resolves
-  // Top score-bar strip (team tags + scores + round) for the pop-out panel.
-  // Mirrored as pixels (no OCR) so it's always correct, on any HUD skin.
-  const SCORE_ROI = { x: 0.34, y: 0.0, w: 0.33, h: 0.065 };
+  // The score-bar strip mirrored into the pop-out panel (pixels, no OCR) is now
+  // PER-GAME (`Game.scoreRoi`) — the default CS2 HUD stacks a banner over the
+  // scores (taller) while Valorant's is a single top bar, so one shared crop cut
+  // the CS2 scores off.
   // Consecutive samples the plant condition must hold before firing (at TICK_MS
   // = 250ms, 3 → ~0.75s). A real plant persists 40–45s, so this rejects blips
   // while staying responsive.
@@ -57,7 +84,7 @@
   const cfg = { game: "valorant", running: false };
   let dbg = null;           // latest per-tick debug snapshot (read by the overlay)
   let debugOn = false;      // debug HUD toggle (ROI boxes + value readout); default off
-  const VERSION = "0.2.23";
+  const VERSION = "0.2.34";
   const TICK_MS = 250;   // sample 4x/sec so confirmation (CONFIRM_K) is fast
 
   // Valorant spike-icon shape templates (30x16 red-masks), extracted from real
@@ -104,7 +131,9 @@
       return best;
     }
 
-    // {white, red} fractions inside the ROI, or null if no frame / canvas tainted.
+    // {white, red, warm} fractions inside the ROI, or null if no frame / canvas
+    // tainted. `red` = strict red hue; `warm` = red+orange (some broadcasts draw
+    // the planted C4 icon orange/amber, not red — CS2 Profile 2 keys on `warm`).
     sample(roi) {
       const v = this.getVideo();
       if (!v) return null;
@@ -121,22 +150,23 @@
         this.tainted = true;          // cross-origin canvas blocked pixel read
         return null;
       }
-      let white = 0, red = 0, n = sw * sh;
+      let white = 0, red = 0, warm = 0, n = sw * sh;
       for (let i = 0; i < data.length; i += 4) {
         const r = data[i] / 255, g = data[i + 1] / 255, b = data[i + 2] / 255;
         const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
         const sat = mx === 0 ? 0 : d / mx;
         if (mx >= 0.7 && sat <= 0.25) white++;              // bright low-sat = digits
-        if (d > 0.001) {                                    // hue near red
+        if (d > 0.001 && sat >= 0.4 && mx >= 0.3) {
           let h;
           if (mx === r) h = ((g - b) / d) % 6;
           else if (mx === g) h = (b - r) / d + 2;
           else h = (r - g) / d + 4;
           h = (h * 60 + 360) % 360;
-          if ((h <= 18 || h >= 342) && sat >= 0.4 && mx >= 0.3) red++;
+          if (h <= 18 || h >= 342) red++;                   // strict red
+          if (h <= 45 || h >= 342) warm++;                  // red + orange/amber
         }
       }
-      return { white: white / n, red: red / n };
+      return { white: white / n, red: red / n, warm: warm / n };
     }
   }
 
@@ -146,10 +176,12 @@
   // A Game owns one title's plant-detection signal. Both share the countdown
   // config (fuse + color thresholds); each implements its own pixel matcher.
   class Game {
-    constructor({ fuse, label, redAt, yellowAt, threshold, cooldownMs }) {
+    constructor({ fuse, label, redAt, yellowAt, threshold, cooldownMs, scoreRoi }) {
       this.fuse = fuse; this.label = label; this.redAt = redAt; this.yellowAt = yellowAt;
       this.threshold = threshold;     // plant-match threshold (user-tunable slider)
       this.cooldownMs = cooldownMs;   // post-round suppression window (user-tunable)
+      this.scoreRoi = scoreRoi;       // score-bar strip mirrored into the pop-out (per-HUD)
+      this.confirmK = CONFIRM_K;      // ticks the plant must hold before firing (user-tunable)
       this.run = 0;   // consecutive ticks meeting the full plant condition (confirm)
     }
     reset(hard) { this.run = 0; }   // hard = also clear round-learned state (subclasses)
@@ -160,7 +192,8 @@
   // red low-time round-timer (also red, but digit-shaped) doesn't false-fire.
   class ValorantGame extends Game {
     constructor() {
-      super({ fuse: 45, label: "Valorant", redAt: 7, yellowAt: 21, threshold: ICON_IOU, cooldownMs: COOLDOWN_MS });
+      super({ fuse: 45, label: "Valorant", redAt: 7, yellowAt: 21, threshold: ICON_IOU, cooldownMs: COOLDOWN_MS,
+        scoreRoi: { x: 0.34, y: 0.0, w: 0.33, h: 0.08 } });   // single-tier top score bar
       this.canvas = document.createElement("canvas");
       this.canvas.width = ICON.TW; this.canvas.height = ICON.TH;
       this.cx = this.canvas.getContext("2d", { willReadFrequently: true });
@@ -212,7 +245,7 @@
       if (iou >= this.threshold) { if (this.run === 0) this.firstAt = performance.now(); this.run++; }
       else this.run = 0;
       const debug = { mode: "valo", iou, run: this.run };
-      if (this.run >= CONFIRM_K) return { plant: true, plantTime: this.firstAt, debug };
+      if (this.run >= this.confirmK) return { plant: true, plantTime: this.firstAt, debug };
       return { plant: false, status: "Watching for plant…", debug };
     }
 
@@ -233,14 +266,23 @@
   // match rejects the red "ROUND WIN" banner (red, but no C4 symbol).
   class CS2Game extends Game {
     constructor() {
-      super({ fuse: 40, label: "CS2", redAt: 5, yellowAt: 10, threshold: CS_ICON_IOU, cooldownMs: COOLDOWN_MS });
+      super({ fuse: 40, label: "CS2", redAt: 5, yellowAt: 10, threshold: CS_ICON_IOU, cooldownMs: COOLDOWN_MS,
+        scoreRoi: { x: 0.33, y: 0.02, w: 0.34, h: 0.145 } });  // taller: default HUD stacks banner over scores
       this.canvas = document.createElement("canvas");
       this.canvas.width = CS_BW; this.canvas.height = CS_BOMB.TH;
       this.cx = this.canvas.getContext("2d", { willReadFrequently: true });
+      this.profile = 1;       // 1 = badge beside bar (BLAST); 2 = center icon (default HUD); 3 = top-center (player POV)
+      this.centerRoi = CS_CENTER_ROI;  // which slot pollCenter samples (profile 2 vs 3)
       this.armed = false;     // have we seen timer digits (we're in a live round)?
       this.baseline = 0;      // rolling max white-fraction while digits show
       this.dgRun = 0;         // consecutive ticks the digits have been gone
       this.firstGoneAt = 0;   // when the digits first vanished (= plant time)
+    }
+
+    setProfile(p) {
+      this.profile = (Number(p) === 2 || Number(p) === 3) ? Number(p) : 1;
+      this.centerRoi = this.profile === 3 ? CS_PLAYER_ROI : CS_CENTER_ROI;
+      this.reset(true);
     }
 
     // Best match { iou, side, red }: white-mask IoU of the C4 symbol vs template,
@@ -293,6 +335,7 @@
     // present on either side. Digits-gone gives accurate timing (anchored to when
     // they first vanished); the C4 SHAPE rejects the red "ROUND WIN" banner.
     poll() {
+      if (this.profile === 2 || this.profile === 3) return this.pollCenter();
       const c = frames.sample(CS_TIMER_ROI);
       if (!c) return { plant: false, status: waitingStatus(), debug: null };
       if (c.white > 0.08) { this.armed = true; this.baseline = Math.max(this.baseline * 0.95, c.white); }
@@ -304,14 +347,48 @@
         mode: "cs2", white: c.white, base: this.baseline, gone: digitsGone,
         scanIoU: bs.iou, scanRed: bs.red, side: bs.side || "-", run: this.run,
       };
-      if (this.run >= CONFIRM_K) return { plant: true, plantTime: this.firstGoneAt, debug };
+      if (this.run >= this.confirmK) return { plant: true, plantTime: this.firstGoneAt, debug };
       return { plant: false, status: this.armed ? "Watching for plant…" : "Waiting for round HUD…", debug };
     }
 
-    // "Still planted?" — C4 SHAPE only (NOT red: a defuse shows a red "ROUND WIN"
-    // banner here, which would keep it falsely "present"). Defused ~0.13 vs
-    // planted 0.4–1.0, so 0.18 + the GONE_K debounce separates them.
+    // Profile 2 per-tick detection: in the center slot the timer DIGITS vanish AND
+    // red appears (the C4 icon replaces the timer). The digits-gone baseline is
+    // adaptive (learns this stream's white level), so it works across broadcasts;
+    // requiring red too rejects a brief timer occlusion. Anchored to when the
+    // digits first vanished, like Profile 1.
+    pollCenter() {
+      const c = frames.sample(this.centerRoi);
+      if (!c) return { plant: false, status: waitingStatus(), debug: null };
+      if (c.white > 0.06) { this.armed = true; this.baseline = Math.max(this.baseline * 0.95, c.white); }
+      const digitsGone = this.armed && this.baseline > 0.06 && c.white < 0.5 * this.baseline;
+      const warmPresent = c.warm >= CS_CENTER_WARM;
+      // The plant signal: the slot is now "more red than white" — the red/orange
+      // bomb timer dominates where the white round-timer digits were. `warm > white`
+      // is flicker-free (in a player POV the bright background bounces the white
+      // reading around the digits-gone threshold, which otherwise keeps resetting
+      // the confirm counter → lag). digitsGone is kept as an OR so broadcasts behave
+      // exactly as before (there both flip together at the plant).
+      const slotRed = digitsGone || c.warm > c.white;
+      // Anchor to when slotRed+warm FIRST hold (the real plant), not digits-gone
+      // alone — in player POV the timer can read "gone" for ~20s during a death/
+      // spectate before any plant, which would wind the countdown down.
+      if (slotRed && warmPresent) { if (this.run === 0) this.firstGoneAt = performance.now(); this.run++; } else this.run = 0;
+      const debug = { mode: "cs2-p2", white: c.white, base: this.baseline, gone: digitsGone, warm: c.warm, run: this.run };
+      if (this.run >= this.confirmK) return { plant: true, plantTime: this.firstGoneAt, debug };
+      return { plant: false, status: this.armed ? "Watching for plant…" : "Waiting for round HUD…", debug };
+    }
+
+    // "Still planted?" — Profile 1: C4 SHAPE only (NOT red: a defuse shows a red
+    // "ROUND WIN" banner here, which would keep it falsely "present"). Defused
+    // ~0.13 vs planted 0.4–1.0, so 0.18 + the GONE_K debounce separates them.
+    // Profile 2: the red C4 icon is present in the center slot while planted; it
+    // disappears on defuse/detonate. Lenient threshold so brief washouts hold.
     stillPlanted() {
+      if (this.profile === 2 || this.profile === 3) {
+        const c = frames.sample(this.centerRoi);
+        if (!c) return { present: null };
+        return { present: c.warm >= 0.06, value: c.warm };
+      }
       const bs = this.scan();
       return { present: bs.iou > 0.18, value: bs.iou };
     }
@@ -361,9 +438,14 @@
     update() {
       if (!this.roiBox) this.roiBox = this.mkBox("#22d3ee");
       if (cfg.game === "cs2") {
-        this.placeBox(this.roiBox, CS_TIMER_ROI);
-        if (!this.badgeBox) this.badgeBox = this.mkBox("#f59e0b");
-        this.placeBox(this.badgeBox, CS_BAND);
+        if (GAMES.cs2.profile === 2 || GAMES.cs2.profile === 3) {
+          this.placeBox(this.roiBox, GAMES.cs2.centerRoi);   // center (P2) or top-center (P3) timer/C4-icon slot
+          if (this.badgeBox) this.badgeBox.style.display = "none";
+        } else {
+          this.placeBox(this.roiBox, CS_TIMER_ROI);
+          if (!this.badgeBox) this.badgeBox = this.mkBox("#f59e0b");
+          this.placeBox(this.badgeBox, CS_BAND);
+        }
         if (this.leftBox) { this.leftBox.style.display = "none"; }
       } else {
         this.placeBox(this.roiBox, TIMER_ROI);
@@ -626,10 +708,13 @@
       panel.update(status, bigTxt, color, pct);
       if (debugOn && secs == null && dbg) {
         const f = (x) => x == null ? "–" : x.toFixed(3);
+        const th = GAMES[cfg.game].threshold;
         const body = dbg.mode === "valo"
-          ? `iconIoU=${f(dbg.iou)} (need ≥${GAMES[cfg.game].threshold})<br>${dbg.iou >= GAMES[cfg.game].threshold ? "ICON✓" : "no-icon"}`
+          ? `iconIoU=${f(dbg.iou)} (need ≥${th})<br>${dbg.iou >= th ? "ICON✓" : "no-icon"}`
+          : dbg.mode === "cs2-p2"
+          ? `${dbg.gone ? "GONE" : "digits"} (w=${f(dbg.white)})<br>warm=${f(dbg.warm)} (need ≥${CS_CENTER_WARM})<br>${(dbg.gone || dbg.warm > dbg.white) && dbg.warm >= CS_CENTER_WARM ? "C4✓" : "no-C4"}`
           : `${dbg.gone ? "GONE" : "digits"} (w=${f(dbg.white)})<br>scan iou=${f(dbg.scanIoU)} red=${f(dbg.scanRed)}<br>bomb=${dbg.side}`;
-        el.dbg.innerHTML = `${body}<br>plantRun=${dbg.run}/${CONFIRM_K}`;
+        el.dbg.innerHTML = `${body}<br>plantRun=${dbg.run}/${GAMES[cfg.game].confirmK}`;
       } else {
         el.dbg.innerHTML = "";
       }
@@ -702,12 +787,13 @@
       const v = frames.getVideo();
       if (!v || !v.videoWidth) return;
       const vw = v.videoWidth, vh = v.videoHeight;
-      const sw = Math.max(1, Math.round(SCORE_ROI.w * vw));
-      const sh = Math.max(1, Math.round(SCORE_ROI.h * vh));
-      if (this.els.score.width !== sw) { this.els.score.width = sw; this.els.score.height = sh; }
+      const roi = GAMES[cfg.game].scoreRoi;
+      const sw = Math.max(1, Math.round(roi.w * vw));
+      const sh = Math.max(1, Math.round(roi.h * vh));
+      if (this.els.score.width !== sw || this.els.score.height !== sh) { this.els.score.width = sw; this.els.score.height = sh; }
       try {
-        this.els.sctx.drawImage(v, SCORE_ROI.x * vw, SCORE_ROI.y * vh,
-          SCORE_ROI.w * vw, SCORE_ROI.h * vh, 0, 0, sw, sh);
+        this.els.sctx.drawImage(v, roi.x * vw, roi.y * vh,
+          roi.w * vw, roi.h * vh, 0, 0, sw, sh);
       } catch (e) { /* tainted/unavailable */ }
     }
   }
@@ -730,8 +816,13 @@
     else if (msg.type === "DT_STOP") { detector.stop(); }
     else if (msg.type === "DT_PLANT") { if (!cfg.running) detector.start(); detector.triggerPlant("manual"); }
     else if (msg.type === "DT_SET_SETTINGS") { applySettings(msg.game, msg); }
+    else if (msg.type === "DT_SET_PROFILE") {
+      GAMES.cs2.setProfile(msg.profile);
+      if (debugOn) boxes.update();
+      if (cfg.running) overlay.set("Watching for plant…", null);
+    }
     else if (msg.type === "DT_SET_DEBUG") { setDebug(msg.on); }
-    else if (msg.type === "DT_STATE") { send({ running: cfg.running, game: cfg.game, tainted: frames.tainted }); return true; }
+    else if (msg.type === "DT_STATE") { send({ running: cfg.running, game: cfg.game, tainted: frames.tainted, csProfile: GAMES.cs2.profile }); return true; }
     send && send({ ok: true });
   });
 
@@ -742,6 +833,10 @@
     if (!g || !s) return;
     if (typeof s.threshold === "number") g.threshold = s.threshold;
     if (typeof s.cooldown === "number") g.cooldownMs = s.cooldown * 1000;   // slider is in seconds
+    // Confirmation delay: how long the plant must hold before showing (filters
+    // brief false positives). Slider is seconds; convert to ticks (>=1). The
+    // countdown still anchors to the true plant moment, so it stays accurate.
+    if (typeof s.confirmDelay === "number") g.confirmK = Math.max(1, Math.round(s.confirmDelay * 1000 / TICK_MS));
   }
   // Debug HUD toggle (ROI boxes + live value readout). Default OFF for release.
   function setDebug(on) {
@@ -749,8 +844,9 @@
     if (!debugOn) boxes.hide();
   }
   try {
-    chrome.storage.local.get(["settings", "debug"]).then(({ settings, debug }) => {
+    chrome.storage.local.get(["settings", "debug", "csProfile"]).then(({ settings, debug, csProfile }) => {
       if (settings) for (const k of ["valorant", "cs2"]) applySettings(k, settings[k]);
+      if (csProfile) GAMES.cs2.setProfile(csProfile);
       setDebug(debug);
     });
   } catch (e) { /* storage unavailable */ }
