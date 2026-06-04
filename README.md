@@ -5,13 +5,23 @@ countdown** when the spike (Valorant, 45s) or bomb (CS2, 40s) is planted. It
 detects the plant automatically from a Twitch or YouTube stream's video, and it's
 built for people who *watch* esports streams, not players or broadcasters.
 
-> **Status:** working MVP (v0.3.9). Both games auto-detect plants live on
+> **Status:** working MVP (v0.3.10). Both games auto-detect plants live on
 > **YouTube and Twitch**, and CS2 has three selectable HUD profiles. The build is
 > clean and publishable (debug overlay off by default). Next up is broader
 > tournament testing, then a Chrome Web Store listing.
 
-<!-- Screenshots: add before publishing, e.g.
-![Popup](docs/popup.png)  ![Overlay](docs/overlay.png)
+## Demo
+
+[![Defuse Timer detecting a Valorant spike plant, then clearing on the defuse](docs/demo-poster.png)](docs/demo.mp4)
+
+A short clip (click to play): the overlay detects the spike plant and counts
+down, then clears when the spike is defused.
+
+<!--
+For an inline video player on GitHub: open this README in the GitHub web editor
+and drag docs/demo.mp4 into it. GitHub uploads the file and inserts a
+user-attachments URL that plays inline; then replace the poster link above with
+it. You can also add more screenshots (popup, floating timer) to this section.
 -->
 
 ## Features
