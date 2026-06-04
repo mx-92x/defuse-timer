@@ -84,7 +84,7 @@
   const cfg = { game: "valorant", running: false };
   let dbg = null;           // latest per-tick debug snapshot (read by the overlay)
   let debugOn = false;      // debug HUD toggle (ROI boxes + value readout); default off
-  const VERSION = "0.3.4";
+  const VERSION = "0.3.5";
   const TICK_MS = 250;   // sample 4x/sec so confirmation (CONFIRM_K) is fast
 
   // ---- brand palette --------------------------------------------------------
@@ -686,7 +686,8 @@
       // Hidden when minimized (leaves header + countdown). Remember each one's
       // display so restoring keeps the buttons row as flex (not block), etc.
       this.collapsible = [
-        this.el.label, this.el.status, this.el.bar.parentElement, this.el.dbg,
+        hud.querySelector("#dt-title"), this.el.label, this.el.status,
+        this.el.bar.parentElement, this.el.dbg,
         hud.querySelector("#dt-plant").parentElement,
       ].filter(Boolean).map((el) => ({ el, disp: el.style.display }));
 
@@ -722,16 +723,18 @@
     }
     applyMin() {
       for (const c of this.collapsible || []) c.el.style.display = this.minimized ? "none" : c.disp;
-      // Minimized = a tight chip: shrink padding, the title, the countdown number,
-      // and the header gap so it's a small badge, not the full-size panel.
+      // Minimized = a tight chip: hide the title (in `collapsible`), shrink padding
+      // + the countdown number, and hug the controls to the right so it's a small
+      // badge showing just the countdown.
       if (this.hud) {
         this.hud.style.minWidth = this.minimized ? "0px" : "200px";
         this.hud.style.padding = this.minimized ? "7px 10px" : "12px 14px";
       }
       const hdr = this.hud && this.hud.querySelector("#dt-header");
-      if (hdr) hdr.style.marginBottom = this.minimized ? "2px" : "6px";
-      const title = this.hud && this.hud.querySelector("#dt-title");
-      if (title) title.style.fontSize = this.minimized ? "11px" : "";
+      if (hdr) {
+        hdr.style.marginBottom = this.minimized ? "2px" : "6px";
+        hdr.style.justifyContent = this.minimized ? "flex-end" : "space-between";
+      }
       if (this.el && this.el.big) this.el.big.style.fontSize = this.minimized ? "17px" : "22px";
       const b = this.hud && this.hud.querySelector("#dt-min");
       if (b) { b.textContent = this.minimized ? "□" : "–"; b.title = this.minimized ? "Expand" : "Minimize"; }
