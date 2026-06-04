@@ -35,24 +35,31 @@
     }
 
     * { box-sizing: border-box; }
-    /* Full-bleed dark popup. Chrome on Windows can't round the popup WINDOW
-       (any radius just leaks the OS window's white corners/edges), so instead
-       of chasing rounded corners we paint edge-to-edge and add depth with an
-       inset shadow/vignette. The gradient goes on <body> (the element Chrome
-       sizes the popup to) with a solid dark <html> backstop, so no white can
-       show through anywhere. */
+    /* Full-bleed dark popup. Chrome on Windows can size the popup WINDOW a bit
+       larger than our 288px content (reserved scrollbar width, fractional
+       display scaling), and that extra canvas defaults to WHITE — which showed
+       as an L-shaped strip on the right/bottom. So the gradient is painted on a
+       FIXED, full-viewport layer (body::before) that covers the entire window
+       regardless of content size, with a solid dark <html>/<body> backstop. No
+       white can show through. (Rounded corners aren't attempted: Chrome on
+       Windows won't round the popup window — any radius leaks white at the OS
+       window edges — so we add depth with an inset shadow/vignette instead.) */
     html, body { margin: 0; background: var(--bg-0); }
-    /* Kill the scrollbar track (renders as a white strip on the edge in Chrome). */
     ::-webkit-scrollbar { width: 0; height: 0; }
-    body {
-      width: 288px; margin: 0; padding: 13px 18px;
-      font: 13px/1.35 "Poppins", "Segoe UI", system-ui, sans-serif;
-      color: var(--text);
-      overflow: hidden;
+    body::before {
+      content: ""; position: fixed; inset: 0; z-index: -1;
       /* Diagonal violet gradient + a teal glow bleeding from the top-right. */
       background:
         radial-gradient(130% 80% at 100% 0%, rgba(45, 212, 191, 0.18), transparent 55%),
         linear-gradient(160deg, var(--bg-0) 0%, var(--bg-1) 45%, var(--bg-2) 100%);
+    }
+    body {
+      position: relative;
+      width: 288px; margin: 0; padding: 13px 18px;
+      font: 13px/1.35 "Poppins", "Segoe UI", system-ui, sans-serif;
+      color: var(--text);
+      background: transparent;
+      overflow: hidden;
       /* Depth instead of rounded corners: a soft dark vignette around the edges
          + a faint violet hairline + a subtle top highlight = a "framed/floating"
          feel without needing the window itself to be rounded. */
