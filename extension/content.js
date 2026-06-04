@@ -84,7 +84,7 @@
   const cfg = { game: "valorant", running: false };
   let dbg = null;           // latest per-tick debug snapshot (read by the overlay)
   let debugOn = false;      // debug HUD toggle (ROI boxes + value readout); default off
-  const VERSION = "0.3.8";
+  const VERSION = "0.3.9";
   const TICK_MS = 250;   // sample 4x/sec so confirmation (CONFIRM_K) is fast
 
   // ---- brand palette --------------------------------------------------------
@@ -646,12 +646,12 @@
       hud.id = "defuse-time-hud";
       hud.style.cssText = [
         "position:fixed", "right:18px", "bottom:18px", "z-index:2147483647",
-        "min-width:200px", "color:" + PALETTE.text,
+        "min-width:180px", "color:" + PALETTE.text,
         // Subdued take on the popup's violet gradient + teal glow (sits over a
         // live stream, so it's near-opaque).
         "background:radial-gradient(120% 90% at 100% 0%,rgba(45,212,191,.12),transparent 55%),linear-gradient(160deg,rgba(14,11,26,.96),rgba(46,29,82,.96))",
         "border:1px solid rgba(167,139,250,.18)", "border-radius:14px",
-        "padding:12px 14px", "font:13px/1.4 " + FONT_STACK,
+        "padding:10px 12px", "font:13px/1.4 " + FONT_STACK,
         "box-shadow:0 12px 34px rgba(0,0,0,.45)", "cursor:move",
         "user-select:none",
       ].join(";");
@@ -670,7 +670,7 @@
           <div id="dt-bar" style="height:100%;width:0%;background:${PALETTE.barIdle};transition:width 80ms linear;"></div>
         </div>
         <div id="dt-dbg" style="margin-top:6px;font:11px/1.5 monospace;color:#5eead4;"></div>
-        <div style="margin-top:10px;display:flex;gap:6px;">
+        <div style="margin-top:8px;display:flex;gap:6px;">
           <button id="dt-plant" style="flex:1;border:0;border-radius:7px;padding:6px;background:linear-gradient(180deg,#e11d48,#9f1239);color:#fdeef1;font-weight:700;cursor:pointer;">Plant now</button>
           <button id="dt-cancel" style="border:0;border-radius:7px;padding:6px 10px;background:#2e2748;color:#ece9f5;cursor:pointer;">Reset</button>
           <button id="dt-pip" title="Open the floating timer" style="border:0;border-radius:7px;padding:6px 10px;background:#2dd4bf;color:#04342f;font-weight:600;cursor:pointer;">⧉ Float</button>
@@ -731,8 +731,8 @@
       // + the countdown number, and hug the controls to the right so it's a small
       // badge showing just the countdown.
       if (this.hud) {
-        this.hud.style.minWidth = this.minimized ? "0px" : "200px";
-        this.hud.style.padding = this.minimized ? "7px 10px" : "12px 14px";
+        this.hud.style.minWidth = this.minimized ? "0px" : "180px";
+        this.hud.style.padding = this.minimized ? "7px 10px" : "10px 12px";
       }
       const hdr = this.hud && this.hud.querySelector("#dt-header");
       if (hdr) {
@@ -750,7 +750,7 @@
       const fuse = GAMES[cfg.game].fuse;
       const pct = secs == null ? 0 : Math.max(0, Math.min(1, secs / fuse));
       const bigTxt = secs == null ? "—" : secs.toFixed(1) + "s";
-      el.label.textContent = `${GAMES[cfg.game].label} · ${VERSION}${debugOn ? "-debug" : ""}`;
+      el.label.textContent = `${GAMES[cfg.game].label}${debugOn ? " · debug" : ""}`;
       el.status.textContent = status;
       el.big.textContent = bigTxt;
       el.big.style.color = color || PALETTE.text;
