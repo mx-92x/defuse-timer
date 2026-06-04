@@ -13,6 +13,8 @@ venv/
 clip*/
 frames/
 tools/clips/
+# ...except the demo clip, which is a committed public README/store asset.
+!docs/demo.mp4
 
 # --- Node (only `node --check` is used; no deps yet) ---
 node_modules/
