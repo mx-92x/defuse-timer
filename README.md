@@ -12,16 +12,16 @@ built for people who *watch* esports streams, not players or broadcasters.
 
 ## Demo
 
-[![Defuse Timer detecting a Valorant spike plant, then clearing on the defuse](docs/demo-poster.png)](docs/demo.mp4)
+<video src="https://github.com/mx-92x/defuse-timer/raw/main/docs/demo.mp4" poster="https://github.com/mx-92x/defuse-timer/raw/main/docs/demo-poster.png" controls muted width="640"></video>
 
-A short clip (click to play): the overlay detects the spike plant and counts
-down, then clears when the spike is defused.
+A short clip: the overlay detects the spike plant, counts down, and clears when
+the spike is defused. ([Direct link](docs/demo.mp4) if the player doesn't load.)
 
 <!--
-For an inline video player on GitHub: open this README in the GitHub web editor
-and drag docs/demo.mp4 into it. GitHub uploads the file and inserts a
-user-attachments URL that plays inline; then replace the poster link above with
-it. You can also add more screenshots (popup, floating timer) to this section.
+The <video> tag points at the committed file's raw URL. It renders for you on
+this private repo and for everyone once the repo is public. If it ever fails to
+embed, the most reliable method is to open this README in GitHub's web editor and
+drag docs/demo.mp4 in, which inserts a user-attachments URL that always plays.
 -->
 
 ## Features
