@@ -113,6 +113,11 @@ $("start").onclick = async () => { await send({ type: "DT_START", game: $("game"
 $("stop").onclick = async () => { await send({ type: "DT_STOP" }); refresh(); };
 $("plant").onclick = async () => { await send({ type: "DT_PLANT" }); window.close(); };
 
+// Help panel: "?" toggles it; × or Escape closes it.
+$("help").onclick = () => { $("helppanel").hidden = !$("helppanel").hidden; };
+$("help-close").onclick = () => { $("helppanel").hidden = true; };
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") $("helppanel").hidden = true; });
+
 // Footer: show the version (pulled from the manifest so it never goes stale)
 // ahead of the maker's mark -> "v0.3.2 · Made by mx-92x".
 $("ver").textContent = "v" + chrome.runtime.getManifest().version + " · ";

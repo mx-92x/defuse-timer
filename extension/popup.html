@@ -168,9 +168,38 @@
     #sig { margin-top: 10px; text-align: center; font-size: 10px; color: var(--faint); }
     #sig a { color: var(--muted); font-weight: 600; text-decoration: none; }
     #sig a:hover { color: var(--teal); text-decoration: underline; }
+
+    /* Help: a "?" toggle (top-right) that opens a panel over the popup. */
+    #help {
+      position: absolute; top: 13px; right: 16px; z-index: 5;
+      width: 22px; height: 22px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      background: rgba(167, 139, 250, 0.15); border: 1px solid var(--card-bd);
+      color: var(--muted); font-weight: 700; font-size: 13px; cursor: pointer;
+    }
+    #help:hover { color: #fff; background: var(--violet); border-color: var(--violet); }
+    #helppanel {
+      position: absolute; inset: 0; z-index: 10; padding: 13px 16px;
+      overflow-y: auto;
+      background: linear-gradient(160deg, var(--bg-0) 0%, var(--bg-1) 55%, var(--bg-2) 100%);
+    }
+    #helppanel[hidden] { display: none; }
+    #helppanel::-webkit-scrollbar { width: 6px; }
+    #helppanel::-webkit-scrollbar-thumb { background: rgba(167, 139, 250, 0.4); border-radius: 999px; }
+    .hp-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+    .hp-head b { font-size: 15px; color: #faf9ff; }
+    #help-close { width: 24px; height: 24px; border-radius: 7px; border: 0;
+      background: rgba(167, 139, 250, 0.16); color: var(--text); font-size: 15px; cursor: pointer; }
+    #help-close:hover { background: var(--violet); color: #fff; }
+    .hp-body h4 { margin: 13px 0 4px; font-size: 10px; letter-spacing: 0.5px;
+      text-transform: uppercase; color: var(--teal); }
+    .hp-body dl { margin: 0; }
+    .hp-body dt { margin-top: 6px; font-size: 12px; font-weight: 600; color: var(--text); }
+    .hp-body dd { margin: 1px 0 0; font-size: 11px; line-height: 1.4; color: var(--muted); }
   </style>
 </head>
 <body>
+  <button id="help" title="What do the controls do?">?</button>
   <h1>Defuse Timer</h1>
   <div class="sub">Spike &amp; bomb countdown for stream viewers</div>
 
@@ -220,6 +249,50 @@
   <div id="status">Open a Valorant/CS2 stream, pick the game, Start.</div>
   <div id="keys">Hotkeys: Alt+P plant · Alt+C reset · Alt+X close</div>
   <div id="sig"><span id="ver"></span>Made by <a href="https://www.reddit.com/user/mx-92x/" target="_blank" rel="noopener noreferrer">mx-92x</a></div>
+
+  <div id="helppanel" hidden>
+    <div class="hp-head"><b>Controls</b><button id="help-close" title="Close">×</button></div>
+    <div class="hp-body">
+      <h4>Setup</h4>
+      <dl>
+        <dt>Game</dt>
+        <dd>Pick Valorant (45s spike) or CS2 (40s bomb).</dd>
+        <dt>CS2 HUD profile</dt>
+        <dd>Match the stream — 1: badge beside the score bar (BLAST); 2: icon in the center of the bar (most broadcasts); 3: player POV (a streamer playing).</dd>
+      </dl>
+      <h4>Buttons</h4>
+      <dl>
+        <dt>Start watching / Stop</dt>
+        <dd>Begin or end automatic plant detection on this tab.</dd>
+        <dt>Plant now</dt>
+        <dd>Start the countdown manually — a reliable fallback if auto-detect misses.</dd>
+        <dt>Debug overlay</dt>
+        <dd>Show detection boxes + live values on the stream (for tuning a new HUD).</dd>
+      </dl>
+      <h4>Advanced settings</h4>
+      <dl>
+        <dt>Detection threshold</dt>
+        <dd>How strong a match must be to count as a plant. Higher = stricter (fewer false alarms, may miss).</dd>
+        <dt>Round cooldown</dt>
+        <dd>Ignore new triggers for this many seconds after a round (skips replays / round-win banners).</dd>
+        <dt>Confirmation delay</dt>
+        <dd>How long a plant must hold before the countdown shows. Higher filters flicker; the timer stays accurate.</dd>
+      </dl>
+      <h4>On-stream overlay</h4>
+      <dl>
+        <dt>Move · minimize · close</dt>
+        <dd>Drag the overlay to reposition (saved); – minimizes it; × stops watching.</dd>
+        <dt>⧉ Float</dt>
+        <dd>Open the Floating timer — a small always-on-top window for a second monitor.</dd>
+      </dl>
+      <h4>Hotkeys</h4>
+      <dl>
+        <dt>Alt+P · Alt+C · Alt+X</dt>
+        <dd>Plant · Reset · Close the overlay.</dd>
+      </dl>
+    </div>
+  </div>
+
   <script src="popup.js"></script>
 </body>
 </html>
