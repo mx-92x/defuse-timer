@@ -42,6 +42,11 @@ node_modules/
 extension/icons/icon-source.png
 extension/icons/icon-master.png
 
+# --- Store submission build artifacts + local listing copy (not public) ---
+dist/
+build/
+/STORE_LISTING.md
+
 # --- Scratch / stale dumps ---
 _x.txt
 
