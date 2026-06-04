@@ -1,4 +1,4 @@
-# Defuse Time — MVP extension
+# Defuse Timer — MVP extension
 
 Viewer-side spike/bomb detonation countdown for **Valorant** and **CS2** streams,
 running in the viewer's browser. Auto-detects the plant from the stream video
@@ -21,7 +21,7 @@ and runs the countdown; manual trigger always available as a fallback.
 2. Toggle **Developer mode** (top-right).
 3. **Load unpacked** → select this `extension/` folder.
 4. Open a Valorant or CS2 stream on youtube.com or twitch.tv.
-5. Click the Defuse Time icon → pick the game → **Start watching**.
+5. Click the Defuse Timer icon → pick the game → **Start watching**.
 
 ## Test it
 - **Manual (always works):** click **Plant now**, or press **Alt+P** — the
@@ -29,7 +29,7 @@ and runs the countdown; manual trigger always available as a fallback.
   **Alt+X** (or the **×** on the overlay) closes/hides it.
 - **Move it:** drag the overlay anywhere (grab it off the buttons); the position
   is remembered across reloads.
-- **Pop out (2nd monitor):** click **⧉ Pop out panel** to open a small
+- **Floating timer (2nd monitor):** click **⧉ Float** to open a small
   always-on-top window (Document Picture-in-Picture, Chrome 116+) showing the
   countdown plus a live mirror of the score/round bar — drag it to another
   monitor and work while keeping an eye on it.

@@ -1,4 +1,4 @@
-/* Defuse Time — content script.
+/* Defuse Timer — content script.
  *
  * Detects the spike/bomb plant from the stream video and runs a detonation
  * countdown overlay. Detection uses the validated, cross-game signal: the
@@ -84,7 +84,7 @@
   const cfg = { game: "valorant", running: false };
   let dbg = null;           // latest per-tick debug snapshot (read by the overlay)
   let debugOn = false;      // debug HUD toggle (ROI boxes + value readout); default off
-  const VERSION = "0.3.1";
+  const VERSION = "0.3.2";
   const TICK_MS = 250;   // sample 4x/sec so confirmation (CONFIRM_K) is fast
 
   // ---- brand palette --------------------------------------------------------
@@ -653,7 +653,7 @@
       ].join(";");
       hud.innerHTML = `
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:8px;">
-          <b>Defuse Time</b>
+          <b>Defuse Timer</b>
           <span style="display:flex;align-items:center;gap:8px;">
             <span id="dt-label" style="font-size:11px;color:#9b93b4;"></span>
             <button id="dt-min" title="Minimize" style="border:0;border-radius:6px;width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;background:#2e2748;color:#ece9f5;cursor:pointer;font-size:14px;">–</button>
