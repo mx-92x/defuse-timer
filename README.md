@@ -108,8 +108,7 @@ service, must also be open-sourced under AGPL-3.0.
 
 ## License
 
-[AGPL-3.0](LICENSE) (`AGPL-3.0-only`). Free and open source. Strong copyleft:
-anyone who distributes a modified version, or runs one as a network service, must
-release their source under the same license. The network clause is deliberate. It
-covers a possible future hosted or accounts backend, so a competitor can't fork
-it into a closed-source rival service.
+[AGPL-3.0](LICENSE) (`AGPL-3.0-only`). Free and open source. The AGPL is a strong
+copyleft license: if you distribute a modified version, or run a modified version
+as a network service, you must make your source available under the same license.
+See [LICENSE](LICENSE) for the full text.
