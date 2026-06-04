@@ -11,7 +11,7 @@ const GAME_CFG = {
 
 let settings = {};   // { valorant: {threshold, cooldown}, cs2: {threshold, cooldown} }
 
-// Paint the slider's filled (cyan) portion up to the current value.
+// Paint the slider's filled (violet->teal) portion up to the current value.
 function setFill(el) {
   const min = parseFloat(el.min), max = parseFloat(el.max), v = parseFloat(el.value);
   const pct = max > min ? ((v - min) / (max - min)) * 100 : 0;
