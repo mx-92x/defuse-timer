@@ -35,13 +35,13 @@
     }
 
     * { box-sizing: border-box; }
-    /* Rounded popup: the radius + clip live on the ROOT element and the gradient
-       paints it, because Chrome treats <html> as the popup surface. The bg is
-       kept OPAQUE so that on builds which DON'T clip the popup window (Windows
-       Chrome historically doesn't) the corners stay dark rather than showing
-       white triangles — i.e. worst case looks identical to a square popup. */
+    /* Full-bleed dark popup. Chrome on Windows can't round the popup WINDOW
+       (any radius just leaks the OS window's white corners), so instead of
+       chasing rounded corners we paint edge-to-edge and add depth with an
+       inset shadow/vignette below. The gradient lives on <html> so it fills
+       right to the window edge (no white). */
     html {
-      margin: 0; border-radius: 14px; overflow: hidden;
+      margin: 0;
       /* Diagonal violet gradient + a teal glow bleeding from the top-right. */
       background:
         radial-gradient(130% 80% at 100% 0%, rgba(45, 212, 191, 0.18), transparent 55%),
@@ -52,6 +52,13 @@
       font: 13px/1.35 "Poppins", "Segoe UI", system-ui, sans-serif;
       color: var(--text);
       background: transparent;
+      /* Depth instead of rounded corners: a soft dark vignette around the edges
+         + a faint violet hairline + a subtle top highlight = a "framed/floating"
+         feel without needing the window itself to be rounded. */
+      box-shadow:
+        inset 0 0 0 1px rgba(167, 139, 250, 0.10),
+        inset 0 1px 0 0 rgba(255, 255, 255, 0.05),
+        inset 0 0 34px rgba(0, 0, 0, 0.5);
     }
 
     /* Header */
