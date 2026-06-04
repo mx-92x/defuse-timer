@@ -84,7 +84,7 @@
   const cfg = { game: "valorant", running: false };
   let dbg = null;           // latest per-tick debug snapshot (read by the overlay)
   let debugOn = false;      // debug HUD toggle (ROI boxes + value readout); default off
-  const VERSION = "0.3.7";
+  const VERSION = "0.3.8";
   const TICK_MS = 250;   // sample 4x/sec so confirmation (CONFIRM_K) is fast
 
   // ---- brand palette --------------------------------------------------------
@@ -665,7 +665,7 @@
           </span>
         </div>
         <div id="dt-status" style="color:#9b93b4;margin-bottom:2px;"></div>
-        <div id="dt-big" style="font-size:22px;font-weight:700;"></div>
+        <div id="dt-big" style="font-size:18px;font-weight:700;"></div>
         <div style="margin-top:8px;height:6px;background:#211a36;border-radius:999px;overflow:hidden;">
           <div id="dt-bar" style="height:100%;width:0%;background:${PALETTE.barIdle};transition:width 80ms linear;"></div>
         </div>
@@ -739,7 +739,7 @@
         hdr.style.marginBottom = this.minimized ? "2px" : "6px";
         hdr.style.justifyContent = this.minimized ? "flex-end" : "space-between";
       }
-      if (this.el && this.el.big) this.el.big.style.fontSize = this.minimized ? "17px" : "22px";
+      if (this.el && this.el.big) this.el.big.style.fontSize = this.minimized ? "14px" : "18px";
       const b = this.hud && this.hud.querySelector("#dt-min");
       if (b) { b.textContent = this.minimized ? "□" : "–"; b.title = this.minimized ? "Expand" : "Minimize"; }
     }
