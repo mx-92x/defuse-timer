@@ -34,6 +34,10 @@ node_modules/
 /*.png
 /tools/
 
+# --- Generated icon master (regenerable via tools/make_icon.py; the shipped
+#     16/32/48/128 PNGs ARE committed, this hi-res intermediate is not) ---
+extension/icons/icon-master.png
+
 # --- Scratch / stale dumps ---
 _x.txt
 
