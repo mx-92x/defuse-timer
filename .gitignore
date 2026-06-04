@@ -34,8 +34,10 @@ node_modules/
 /*.png
 /tools/
 
-# --- Generated icon master (regenerable via tools/make_icon.py; the shipped
-#     16/32/48/128 PNGs ARE committed, this hi-res intermediate is not) ---
+# --- Icon source/intermediate (the hi-res Gemini render + any drawn master;
+#     processed by tools/make_icon.py. The shipped 16/32/48/128 PNGs ARE
+#     committed, these heavy sources are not.) ---
+extension/icons/icon-source.png
 extension/icons/icon-master.png
 
 # --- Scratch / stale dumps ---
