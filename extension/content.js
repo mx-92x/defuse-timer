@@ -41,9 +41,9 @@
   for (let yy = 0; yy < CS_BOMB.TH; yy++)
     for (let xx = 0; xx < CS_BOMB.TW; xx++)
       CS_MASK_M[yy * CS_BOMB.TW + xx] = CS_MASK[yy * CS_BOMB.TW + (CS_BOMB.TW - 1 - xx)];
-  // CS2 HUD "Profile 2" (standard/default broadcast HUD, e.g. ESL / IEM): the
+  // CS2 HUD "Profile 1" (standard/default broadcast HUD, e.g. ESL / IEM): the
   // round timer sits in the CENTER of the score bar and is REPLACED by a red C4
-  // icon when planted — Valorant-style — rather than Profile 1's badge beside the
+  // icon when planted — Valorant-style — rather than Profile 2's badge beside the
   // bar. Detection here is broadcast-agnostic ON PURPOSE: a fixed icon TEMPLATE
   // proved per-tournament fragile (ESL's icon sits/scales differently from IEM's,
   // and these HUDs are semi-transparent so the red is noisy). Instead we use the
@@ -62,7 +62,7 @@
   // CS2 HUD "Profile 3" (player POV — a streamer PLAYING, not an observer/broadcast
   // feed). The in-game round timer sits at the very TOP-CENTER of the screen
   // (higher than the observer score bar) and is replaced by the red/orange bomb
-  // timer on plant. Same digits-gone + warm logic as Profile 2 — only the ROI
+  // timer on plant. Same digits-gone + warm logic as Profile 1 — only the ROI
   // differs. Measured on a FACEIT player stream: timer white ~0.14 while counting
   // (and it STAYS up through the player's own death/spectate, so digits-gone does
   // NOT false-fire on death) → ~0.03 at plant, with warm 0.17–0.32 in the slot.
@@ -84,7 +84,7 @@
   const cfg = { game: "valorant", running: false };
   let dbg = null;           // latest per-tick debug snapshot (read by the overlay)
   let debugOn = false;      // debug HUD toggle (ROI boxes + value readout); default off
-  const VERSION = "0.3.2";
+  const VERSION = "0.3.3";
   const TICK_MS = 250;   // sample 4x/sec so confirmation (CONFIRM_K) is fast
 
   // ---- brand palette --------------------------------------------------------
@@ -166,7 +166,7 @@
 
     // {white, red, warm} fractions inside the ROI, or null if no frame / canvas
     // tainted. `red` = strict red hue; `warm` = red+orange (some broadcasts draw
-    // the planted C4 icon orange/amber, not red — CS2 Profile 2 keys on `warm`).
+    // the planted C4 icon orange/amber, not red — CS2 Profile 1 keys on `warm`).
     sample(roi) {
       const v = this.getVideo();
       if (!v) return null;
@@ -304,8 +304,8 @@
       this.canvas = document.createElement("canvas");
       this.canvas.width = CS_BW; this.canvas.height = CS_BOMB.TH;
       this.cx = this.canvas.getContext("2d", { willReadFrequently: true });
-      this.profile = 1;       // 1 = badge beside bar (BLAST); 2 = center icon (default HUD); 3 = top-center (player POV)
-      this.centerRoi = CS_CENTER_ROI;  // which slot pollCenter samples (profile 2 vs 3)
+      this.profile = 1;       // 1 = center icon (default HUD); 2 = badge beside bar; 3 = top-center (player POV)
+      this.centerRoi = CS_CENTER_ROI;  // which slot pollCenter samples (profile 1 vs 3)
       this.armed = false;     // have we seen timer digits (we're in a live round)?
       this.baseline = 0;      // rolling max white-fraction while digits show
       this.dgRun = 0;         // consecutive ticks the digits have been gone
@@ -368,7 +368,7 @@
     // present on either side. Digits-gone gives accurate timing (anchored to when
     // they first vanished); the C4 SHAPE rejects the red "ROUND WIN" banner.
     poll() {
-      if (this.profile === 2 || this.profile === 3) return this.pollCenter();
+      if (this.profile === 1 || this.profile === 3) return this.pollCenter();
       const c = frames.sample(CS_TIMER_ROI);
       if (!c) return { plant: false, status: waitingStatus(), debug: null };
       if (c.white > 0.08) { this.armed = true; this.baseline = Math.max(this.baseline * 0.95, c.white); }
@@ -384,11 +384,11 @@
       return { plant: false, status: this.armed ? "Watching for plant…" : "Waiting for round HUD…", debug };
     }
 
-    // Profile 2 per-tick detection: in the center slot the timer DIGITS vanish AND
+    // Profile 1 per-tick detection: in the center slot the timer DIGITS vanish AND
     // red appears (the C4 icon replaces the timer). The digits-gone baseline is
     // adaptive (learns this stream's white level), so it works across broadcasts;
     // requiring red too rejects a brief timer occlusion. Anchored to when the
-    // digits first vanished, like Profile 1.
+    // digits first vanished, like Profile 2.
     pollCenter() {
       const c = frames.sample(this.centerRoi);
       if (!c) return { plant: false, status: waitingStatus(), debug: null };
@@ -406,18 +406,18 @@
       // alone — in player POV the timer can read "gone" for ~20s during a death/
       // spectate before any plant, which would wind the countdown down.
       if (slotRed && warmPresent) { if (this.run === 0) this.firstGoneAt = performance.now(); this.run++; } else this.run = 0;
-      const debug = { mode: "cs2-p2", white: c.white, base: this.baseline, gone: digitsGone, warm: c.warm, run: this.run };
+      const debug = { mode: "cs2-center", white: c.white, base: this.baseline, gone: digitsGone, warm: c.warm, run: this.run };
       if (this.run >= this.confirmK) return { plant: true, plantTime: this.firstGoneAt, debug };
       return { plant: false, status: this.armed ? "Watching for plant…" : "Waiting for round HUD…", debug };
     }
 
-    // "Still planted?" — Profile 1: C4 SHAPE only (NOT red: a defuse shows a red
+    // "Still planted?" — Profile 2: C4 SHAPE only (NOT red: a defuse shows a red
     // "ROUND WIN" banner here, which would keep it falsely "present"). Defused
     // ~0.13 vs planted 0.4–1.0, so 0.18 + the GONE_K debounce separates them.
-    // Profile 2: the red C4 icon is present in the center slot while planted; it
+    // Profile 1: the red C4 icon is present in the center slot while planted; it
     // disappears on defuse/detonate. Lenient threshold so brief washouts hold.
     stillPlanted() {
-      if (this.profile === 2 || this.profile === 3) {
+      if (this.profile === 1 || this.profile === 3) {
         const c = frames.sample(this.centerRoi);
         if (!c) return { present: null };
         return { present: c.warm >= 0.06, value: c.warm };
@@ -471,7 +471,7 @@
     update() {
       if (!this.roiBox) this.roiBox = this.mkBox(PALETTE.teal);
       if (cfg.game === "cs2") {
-        if (GAMES.cs2.profile === 2 || GAMES.cs2.profile === 3) {
+        if (GAMES.cs2.profile === 1 || GAMES.cs2.profile === 3) {
           this.placeBox(this.roiBox, GAMES.cs2.centerRoi);   // center (P2) or top-center (P3) timer/C4-icon slot
           if (this.badgeBox) this.badgeBox.style.display = "none";
         } else {
@@ -746,7 +746,7 @@
         const th = GAMES[cfg.game].threshold;
         const body = dbg.mode === "valo"
           ? `iconIoU=${f(dbg.iou)} (need ≥${th})<br>${dbg.iou >= th ? "ICON✓" : "no-icon"}`
-          : dbg.mode === "cs2-p2"
+          : dbg.mode === "cs2-center"
           ? `${dbg.gone ? "GONE" : "digits"} (w=${f(dbg.white)})<br>warm=${f(dbg.warm)} (need ≥${CS_CENTER_WARM})<br>${(dbg.gone || dbg.warm > dbg.white) && dbg.warm >= CS_CENTER_WARM ? "C4✓" : "no-C4"}`
           : `${dbg.gone ? "GONE" : "digits"} (w=${f(dbg.white)})<br>scan iou=${f(dbg.scanIoU)} red=${f(dbg.scanRed)}<br>bomb=${dbg.side}`;
         el.dbg.innerHTML = `${body}<br>plantRun=${dbg.run}/${GAMES[cfg.game].confirmK}`;
