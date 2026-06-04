@@ -9,7 +9,19 @@ const GAME_CFG = {
   cs2:      { thMin: 0.15, thMax: 0.50, thStep: 0.01, thDef: 0.30, cdDef: 12, cfDef: 0.75 },
 };
 
-let settings = {};   // { valorant: {threshold, cooldown}, cs2: {threshold, cooldown} }
+// The detection-threshold slider means different things per CS2 HUD profile: the
+// center/player profiles (1 & 3) use a WARM-color gate (low values), the badge
+// profile (2) uses a shape-match IoU. So the slider's range/default AND which
+// settings field it writes depend on (game, profile).
+function thresholdCfg(game, profile) {
+  if (game === "cs2" && (profile === 1 || profile === 3))
+    return { min: 0.05, max: 0.40, step: 0.01, def: 0.10, field: "warmThreshold" };
+  const c = GAME_CFG[game];
+  return { min: c.thMin, max: c.thMax, step: c.thStep, def: c.thDef, field: "threshold" };
+}
+const curProfile = () => parseInt($("csProfile").value, 10) || 1;
+
+let settings = {};   // per game: { threshold, warmThreshold (cs2 center/player), cooldown, confirmDelay }
 
 // Paint the slider's filled (violet->teal) portion up to the current value.
 function setFill(el) {
@@ -40,22 +52,24 @@ function updateProfileVis(game) {
 async function refresh() {
   const st = await send({ type: "DT_STATE" });
   if (!st) return;
-  if (st.game) { $("game").value = st.game; loadSliders(st.game); updateProfileVis(st.game); }
   if (st.csProfile) $("csProfile").value = String(st.csProfile);
+  if (st.game) { $("game").value = st.game; loadSliders(st.game); updateProfileVis(st.game); }
   $("status").textContent = st.tainted
     ? "Heads up: can't read this player's pixels — use Plant now (manual)."
     : st.running ? "Watching for the plant…" : "Stopped. Press Start watching.";
 }
 
-// Reflect the selected game's settings into the sliders (range is per game).
+// Reflect the selected game's settings into the sliders. The threshold slider's
+// range/value depends on game + CS2 profile (warm gate vs shape IoU).
 function loadSliders(game) {
   const c = GAME_CFG[game];
   const s = settings[game] || {};
-  const th = typeof s.threshold === "number" ? s.threshold : c.thDef;
+  const tc = thresholdCfg(game, curProfile());
+  const th = typeof s[tc.field] === "number" ? s[tc.field] : tc.def;
   const cd = typeof s.cooldown === "number" ? s.cooldown : c.cdDef;
   const cf = typeof s.confirmDelay === "number" ? s.confirmDelay : c.cfDef;
   const t = $("threshold");
-  t.min = c.thMin; t.max = c.thMax; t.step = c.thStep; t.value = th;
+  t.min = tc.min; t.max = tc.max; t.step = tc.step; t.value = th;
   $("cooldown").value = cd;
   $("confirm").value = cf;
   $("thVal").textContent = Number(th).toFixed(2);
@@ -67,6 +81,7 @@ function loadSliders(game) {
 // Save the selected game's slider values and push them to the content script live.
 function applySliders() {
   const game = $("game").value;
+  const tc = thresholdCfg(game, curProfile());
   const threshold = parseFloat($("threshold").value);
   const cooldown = parseInt($("cooldown").value, 10);
   const confirmDelay = parseFloat($("confirm").value);
@@ -74,9 +89,15 @@ function applySliders() {
   $("cdVal").textContent = cooldown + "s";
   $("cfVal").textContent = confirmDelay.toFixed(2) + "s";
   setFill($("threshold")); setFill($("cooldown")); setFill($("confirm"));
-  settings[game] = { threshold, cooldown, confirmDelay };
+  // Merge so the OTHER threshold field is preserved (CS2 stores warm + scan
+  // thresholds separately; the slider only edits whichever the profile uses).
+  const cur = settings[game] || {};
+  cur[tc.field] = threshold;
+  cur.cooldown = cooldown;
+  cur.confirmDelay = confirmDelay;
+  settings[game] = cur;
   chrome.storage.local.set({ settings });
-  send({ type: "DT_SET_SETTINGS", game, threshold, cooldown, confirmDelay });
+  send({ type: "DT_SET_SETTINGS", game, threshold: cur.threshold, warmThreshold: cur.warmThreshold, cooldown, confirmDelay });
 }
 
 // Boot: load saved game + settings, then populate the sliders.
@@ -99,6 +120,7 @@ $("game").onchange = () => {
 $("csProfile").onchange = () => {
   const profile = parseInt($("csProfile").value, 10);
   chrome.storage.local.set({ csProfile: profile });
+  loadSliders($("game").value);   // threshold slider's range/meaning depends on the profile
   send({ type: "DT_SET_PROFILE", profile });
 };
 $("threshold").oninput = applySliders;
