@@ -84,7 +84,7 @@
   const cfg = { game: "valorant", running: false };
   let dbg = null;           // latest per-tick debug snapshot (read by the overlay)
   let debugOn = false;      // debug HUD toggle (ROI boxes + value readout); default off
-  const VERSION = "0.3.5";
+  const VERSION = "0.3.6";
   const TICK_MS = 250;   // sample 4x/sec so confirmation (CONFIRM_K) is fast
 
   // ---- brand palette --------------------------------------------------------
@@ -395,13 +395,16 @@
       if (c.white > 0.06) { this.armed = true; this.baseline = Math.max(this.baseline * 0.95, c.white); }
       const digitsGone = this.armed && this.baseline > 0.06 && c.white < 0.5 * this.baseline;
       const warmPresent = c.warm >= CS_CENTER_WARM;
-      // The plant signal: the slot is now "more red than white" — the red/orange
-      // bomb timer dominates where the white round-timer digits were. `warm > white`
-      // is flicker-free (in a player POV the bright background bounces the white
-      // reading around the digits-gone threshold, which otherwise keeps resetting
-      // the confirm counter → lag). digitsGone is kept as an OR so broadcasts behave
-      // exactly as before (there both flip together at the plant).
-      const slotRed = digitsGone || c.warm > c.white;
+      // The plant signal. PLAYER POV (P3) needs a "more red than white" trigger:
+      // `warm > white` is flicker-free where the bright in-game background bounces
+      // the white reading around the digits-gone threshold (which otherwise keeps
+      // resetting the confirm counter → lag). But on a BROADCAST center HUD (P1)
+      // that OR caused random MID-ROUND false fires — a warm background (fire,
+      // molotov, a reddish map area, an orange element bleeding into the slot) can
+      // push warm above white WHILE the timer digits are still showing. So P1
+      // relies on digits-gone alone (its robust, validated signal); warm>white is
+      // restricted to P3. (warmPresent still gates both.)
+      const slotRed = digitsGone || (this.profile === 3 && c.warm > c.white);
       // Anchor to when slotRed+warm FIRST hold (the real plant), not digits-gone
       // alone — in player POV the timer can read "gone" for ~20s during a death/
       // spectate before any plant, which would wind the countdown down.
