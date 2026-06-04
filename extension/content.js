@@ -84,7 +84,7 @@
   const cfg = { game: "valorant", running: false };
   let dbg = null;           // latest per-tick debug snapshot (read by the overlay)
   let debugOn = false;      // debug HUD toggle (ROI boxes + value readout); default off
-  const VERSION = "0.3.3";
+  const VERSION = "0.3.4";
   const TICK_MS = 250;   // sample 4x/sec so confirmation (CONFIRM_K) is fast
 
   // ---- brand palette --------------------------------------------------------
@@ -652,8 +652,8 @@
         "user-select:none",
       ].join(";");
       hud.innerHTML = `
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:8px;">
-          <b>Defuse Timer</b>
+        <div id="dt-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:8px;">
+          <b id="dt-title">Defuse Timer</b>
           <span style="display:flex;align-items:center;gap:8px;">
             <span id="dt-label" style="font-size:11px;color:#9b93b4;"></span>
             <button id="dt-min" title="Minimize" style="border:0;border-radius:6px;width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;background:#2e2748;color:#ece9f5;cursor:pointer;font-size:14px;">–</button>
@@ -722,7 +722,17 @@
     }
     applyMin() {
       for (const c of this.collapsible || []) c.el.style.display = this.minimized ? "none" : c.disp;
-      if (this.hud) this.hud.style.minWidth = this.minimized ? "0px" : "200px";
+      // Minimized = a tight chip: shrink padding, the title, the countdown number,
+      // and the header gap so it's a small badge, not the full-size panel.
+      if (this.hud) {
+        this.hud.style.minWidth = this.minimized ? "0px" : "200px";
+        this.hud.style.padding = this.minimized ? "7px 10px" : "12px 14px";
+      }
+      const hdr = this.hud && this.hud.querySelector("#dt-header");
+      if (hdr) hdr.style.marginBottom = this.minimized ? "2px" : "6px";
+      const title = this.hud && this.hud.querySelector("#dt-title");
+      if (title) title.style.fontSize = this.minimized ? "11px" : "";
+      if (this.el && this.el.big) this.el.big.style.fontSize = this.minimized ? "17px" : "22px";
       const b = this.hud && this.hud.querySelector("#dt-min");
       if (b) { b.textContent = this.minimized ? "□" : "–"; b.title = this.minimized ? "Expand" : "Minimize"; }
     }
