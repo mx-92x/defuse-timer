@@ -84,7 +84,7 @@
   const cfg = { game: "valorant", running: false };
   let dbg = null;           // latest per-tick debug snapshot (read by the overlay)
   let debugOn = false;      // debug HUD toggle (ROI boxes + value readout); default off
-  const VERSION = "0.3.0";
+  const VERSION = "0.3.1";
   const TICK_MS = 250;   // sample 4x/sec so confirmation (CONFIRM_K) is fast
 
   // ---- brand palette --------------------------------------------------------
@@ -667,7 +667,7 @@
         </div>
         <div id="dt-dbg" style="margin-top:6px;font:11px/1.5 monospace;color:#5eead4;"></div>
         <div style="margin-top:10px;display:flex;gap:6px;">
-          <button id="dt-plant" style="flex:1;border:0;border-radius:7px;padding:6px;background:linear-gradient(180deg,#fb5070,#e11d48);color:#fff;font-weight:700;cursor:pointer;">Plant now</button>
+          <button id="dt-plant" style="flex:1;border:0;border-radius:7px;padding:6px;background:linear-gradient(180deg,#e11d48,#9f1239);color:#fdeef1;font-weight:700;cursor:pointer;">Plant now</button>
           <button id="dt-cancel" style="border:0;border-radius:7px;padding:6px 10px;background:#2e2748;color:#ece9f5;cursor:pointer;">Reset</button>
           <button id="dt-pip" title="Open the floating timer" style="border:0;border-radius:7px;padding:6px 10px;background:#2dd4bf;color:#04342f;font-weight:600;cursor:pointer;">⧉ Float</button>
         </div>`;
