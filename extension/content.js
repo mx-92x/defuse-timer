@@ -84,7 +84,7 @@
   const cfg = { game: "valorant", running: false };
   let dbg = null;           // latest per-tick debug snapshot (read by the overlay)
   let debugOn = false;      // debug HUD toggle (ROI boxes + value readout); default off
-  const VERSION = "0.3.6";
+  const VERSION = "0.3.7";
   const TICK_MS = 250;   // sample 4x/sec so confirmation (CONFIRM_K) is fast
 
   // ---- brand palette --------------------------------------------------------
@@ -306,6 +306,7 @@
       this.cx = this.canvas.getContext("2d", { willReadFrequently: true });
       this.profile = 1;       // 1 = center icon (default HUD); 2 = badge beside bar; 3 = top-center (player POV)
       this.centerRoi = CS_CENTER_ROI;  // which slot pollCenter samples (profile 1 vs 3)
+      this.warmThreshold = CS_CENTER_WARM;  // center/player (P1/P3) warm gate — user-tunable slider
       this.armed = false;     // have we seen timer digits (we're in a live round)?
       this.baseline = 0;      // rolling max white-fraction while digits show
       this.dgRun = 0;         // consecutive ticks the digits have been gone
@@ -394,7 +395,7 @@
       if (!c) return { plant: false, status: waitingStatus(), debug: null };
       if (c.white > 0.06) { this.armed = true; this.baseline = Math.max(this.baseline * 0.95, c.white); }
       const digitsGone = this.armed && this.baseline > 0.06 && c.white < 0.5 * this.baseline;
-      const warmPresent = c.warm >= CS_CENTER_WARM;
+      const warmPresent = c.warm >= this.warmThreshold;
       // The plant signal. PLAYER POV (P3) needs a "more red than white" trigger:
       // `warm > white` is flicker-free where the bright in-game background bounces
       // the white reading around the digits-gone threshold (which otherwise keeps
@@ -409,7 +410,7 @@
       // alone — in player POV the timer can read "gone" for ~20s during a death/
       // spectate before any plant, which would wind the countdown down.
       if (slotRed && warmPresent) { if (this.run === 0) this.firstGoneAt = performance.now(); this.run++; } else this.run = 0;
-      const debug = { mode: "cs2-center", white: c.white, base: this.baseline, gone: digitsGone, warm: c.warm, run: this.run };
+      const debug = { mode: "cs2-center", white: c.white, base: this.baseline, gone: digitsGone, warm: c.warm, c4: slotRed && warmPresent, run: this.run };
       if (this.run >= this.confirmK) return { plant: true, plantTime: this.firstGoneAt, debug };
       return { plant: false, status: this.armed ? "Watching for plant…" : "Waiting for round HUD…", debug };
     }
@@ -423,7 +424,7 @@
       if (this.profile === 1 || this.profile === 3) {
         const c = frames.sample(this.centerRoi);
         if (!c) return { present: null };
-        return { present: c.warm >= 0.06, value: c.warm };
+        return { present: c.warm >= this.warmThreshold * 0.6, value: c.warm };
       }
       const bs = this.scan();
       return { present: bs.iou > 0.18, value: bs.iou };
@@ -763,7 +764,7 @@
         const body = dbg.mode === "valo"
           ? `iconIoU=${f(dbg.iou)} (need ≥${th})<br>${dbg.iou >= th ? "ICON✓" : "no-icon"}`
           : dbg.mode === "cs2-center"
-          ? `${dbg.gone ? "GONE" : "digits"} (w=${f(dbg.white)})<br>warm=${f(dbg.warm)} (need ≥${CS_CENTER_WARM})<br>${(dbg.gone || dbg.warm > dbg.white) && dbg.warm >= CS_CENTER_WARM ? "C4✓" : "no-C4"}`
+          ? `${dbg.gone ? "GONE" : "digits"} (w=${f(dbg.white)})<br>warm=${f(dbg.warm)} (need ≥${GAMES.cs2.warmThreshold})<br>${dbg.c4 ? "C4✓" : "no-C4"}`
           : `${dbg.gone ? "GONE" : "digits"} (w=${f(dbg.white)})<br>scan iou=${f(dbg.scanIoU)} red=${f(dbg.scanRed)}<br>bomb=${dbg.side}`;
         el.dbg.innerHTML = `${body}<br>plantRun=${dbg.run}/${GAMES[cfg.game].confirmK}`;
       } else {
@@ -885,6 +886,7 @@
     const g = GAMES[game];
     if (!g || !s) return;
     if (typeof s.threshold === "number") g.threshold = s.threshold;
+    if (typeof s.warmThreshold === "number" && "warmThreshold" in g) g.warmThreshold = s.warmThreshold;  // CS2 center/player warm gate
     if (typeof s.cooldown === "number") g.cooldownMs = s.cooldown * 1000;   // slider is in seconds
     // Confirmation delay: how long the plant must hold before showing (filters
     // brief false positives). Slider is seconds; convert to ticks (>=1). The
