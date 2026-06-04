@@ -44,7 +44,10 @@
        white can show through. (Rounded corners aren't attempted: Chrome on
        Windows won't round the popup window — any radius leaks white at the OS
        window edges — so we add depth with an inset shadow/vignette instead.) */
-    html, body { margin: 0; background: var(--bg-0); }
+    /* overflow:hidden on the ROOT too: stops Chrome reserving a scrollbar
+       gutter, which is the band that stayed white on the right/bottom (a fixed
+       layer's coverage excludes the reserved gutter). */
+    html, body { margin: 0; background: var(--bg-0); overflow: hidden; }
     ::-webkit-scrollbar { width: 0; height: 0; }
     body::before {
       content: ""; position: fixed; inset: 0; z-index: -1;
