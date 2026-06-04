@@ -41,11 +41,14 @@
        inset shadow/vignette. The gradient goes on <body> (the element Chrome
        sizes the popup to) with a solid dark <html> backstop, so no white can
        show through anywhere. */
-    html { margin: 0; background: var(--bg-0); }
+    html, body { margin: 0; background: var(--bg-0); }
+    /* Kill the scrollbar track (renders as a white strip on the edge in Chrome). */
+    ::-webkit-scrollbar { width: 0; height: 0; }
     body {
       width: 288px; margin: 0; padding: 13px 18px;
       font: 13px/1.35 "Poppins", "Segoe UI", system-ui, sans-serif;
       color: var(--text);
+      overflow: hidden;
       /* Diagonal violet gradient + a teal glow bleeding from the top-right. */
       background:
         radial-gradient(130% 80% at 100% 0%, rgba(45, 212, 191, 0.18), transparent 55%),
