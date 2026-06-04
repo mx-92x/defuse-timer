@@ -1,4 +1,4 @@
-/* Defuse Time — content script.
+/* Defuse Timer — content script.
  *
  * Detects the spike/bomb plant from the stream video and runs a detonation
  * countdown overlay. Detection uses the validated, cross-game signal: the
@@ -84,8 +84,41 @@
   const cfg = { game: "valorant", running: false };
   let dbg = null;           // latest per-tick debug snapshot (read by the overlay)
   let debugOn = false;      // debug HUD toggle (ROI boxes + value readout); default off
-  const VERSION = "0.2.34";
+  const VERSION = "0.3.2";
   const TICK_MS = 250;   // sample 4x/sec so confirmation (CONFIRM_K) is fast
+
+  // ---- brand palette --------------------------------------------------------
+  // Single source of truth for the overlay + pop-out colors (mirrors the
+  // popup's CSS :root). primary = violet, secondary = teal; the countdown runs
+  // through emerald -> amber -> rose as the fuse burns down.
+  const PALETTE = {
+    violet: "#8b5cf6", violetLo: "#7c3aed", teal: "#2dd4bf",
+    text: "#ece9f5", muted: "#9b93b4",
+    safe: "#34d399", caution: "#fbbf24", danger: "#f43f5e",
+    barIdle: "#3a3357",            // empty progress bar / neutral surface
+  };
+
+  // The overlay + pop-out are injected into the host page (YouTube/Twitch), so
+  // to use the bundled Poppins they must (1) be listed in the manifest's
+  // web_accessible_resources and (2) have an @font-face pointing at the
+  // extension URL injected into that document. The family is namespaced
+  // "Poppins DT" so it can't clash with a font the host page already calls
+  // "Poppins". If chrome.runtime is unavailable it silently falls back to the
+  // system font.
+  const FONT_STACK = "'Poppins DT','Segoe UI',system-ui,sans-serif";
+  function injectFont(doc) {
+    try {
+      if (!doc || doc.getElementById("dt-font-face")) return;
+      const u = (w) => chrome.runtime.getURL(`fonts/poppins-${w}.woff2`);
+      const face = (w) =>
+        `@font-face{font-family:'Poppins DT';font-weight:${w};font-style:normal;` +
+        `font-display:swap;src:url(${u(w)}) format('woff2');}`;
+      const s = doc.createElement("style");
+      s.id = "dt-font-face";
+      s.textContent = [400, 600, 700, 800].map(face).join("");
+      (doc.head || doc.documentElement).appendChild(s);
+    } catch (e) { /* getURL unavailable -> system font fallback */ }
+  }
 
   // Valorant spike-icon shape templates (30x16 red-masks), extracted from real
   // plants. Matching the SHAPE (not just "is there red") is what distinguishes
@@ -436,7 +469,7 @@
     }
 
     update() {
-      if (!this.roiBox) this.roiBox = this.mkBox("#22d3ee");
+      if (!this.roiBox) this.roiBox = this.mkBox(PALETTE.teal);
       if (cfg.game === "cs2") {
         if (GAMES.cs2.profile === 2 || GAMES.cs2.profile === 3) {
           this.placeBox(this.roiBox, GAMES.cs2.centerRoi);   // center (P2) or top-center (P3) timer/C4-icon slot
@@ -550,7 +583,7 @@
       this.stopRender();
       this.planted = false; this.goneCount = 0; this.monIoU = null; dbg = null;
       this.cooldownUntil = performance.now() + GAMES[cfg.game].cooldownMs;   // skip the replay
-      overlay.set(cfg.game === "cs2" ? "Bomb defused / cleared" : "Spike defused / cleared", null, "#22d3ee");
+      overlay.set(cfg.game === "cs2" ? "Bomb defused / cleared" : "Spike defused / cleared", null, PALETTE.teal);
       setTimeout(() => { this.reset(true); if (cfg.running) overlay.set("Watching for plant…", null); }, 2500);
     }
 
@@ -564,7 +597,7 @@
     renderCountdown() {
       const rem = this.detonateAt - performance.now();
       if (rem <= 0) {
-        overlay.set("DETONATED", 0, "#ef4444");
+        overlay.set("DETONATED", 0, PALETTE.danger);
         this.cooldownUntil = performance.now() + GAMES[cfg.game].cooldownMs;   // skip the replay
         setTimeout(() => { this.reset(true); }, 2500);
         this.stopRender();
@@ -572,7 +605,7 @@
       }
       const secs = rem / 1000;
       const g = GAMES[cfg.game];
-      const color = secs > g.yellowAt ? "#22c55e" : secs > g.redAt ? "#eab308" : "#ef4444";
+      const color = secs > g.yellowAt ? PALETTE.safe : secs > g.redAt ? PALETTE.caution : PALETTE.danger;
       const label = (cfg.game === "cs2" ? "BOMB PLANTED" : "SPIKE PLANTED")
         + (debugOn && this.monIoU != null ? `  · ${this.monIoU.toFixed(2)}` : "");
       overlay.set(label, secs, color);
@@ -604,37 +637,39 @@
 
     ensure() {
       if (this.hud) return;
+      injectFont(document);
       const hud = document.createElement("div");
       hud.id = "defuse-time-hud";
       hud.style.cssText = [
         "position:fixed", "right:18px", "bottom:18px", "z-index:2147483647",
-        "min-width:200px", "color:#e5e7eb",
-        // Subdued take on the popup's gradient (sits over a live stream).
-        "background:radial-gradient(120% 90% at 100% 0%,rgba(34,211,238,.10),transparent 55%),linear-gradient(160deg,rgba(12,18,32,.96),rgba(30,28,64,.96))",
-        "border:1px solid rgba(148,163,184,.16)", "border-radius:14px",
-        "padding:12px 14px", "font:13px/1.4 'Segoe UI',system-ui,sans-serif",
+        "min-width:200px", "color:" + PALETTE.text,
+        // Subdued take on the popup's violet gradient + teal glow (sits over a
+        // live stream, so it's near-opaque).
+        "background:radial-gradient(120% 90% at 100% 0%,rgba(45,212,191,.12),transparent 55%),linear-gradient(160deg,rgba(14,11,26,.96),rgba(46,29,82,.96))",
+        "border:1px solid rgba(167,139,250,.18)", "border-radius:14px",
+        "padding:12px 14px", "font:13px/1.4 " + FONT_STACK,
         "box-shadow:0 12px 34px rgba(0,0,0,.45)", "cursor:move",
         "user-select:none",
       ].join(";");
       hud.innerHTML = `
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:8px;">
-          <b>Defuse Time</b>
+          <b>Defuse Timer</b>
           <span style="display:flex;align-items:center;gap:8px;">
-            <span id="dt-label" style="font-size:11px;color:#94a3b8;"></span>
-            <button id="dt-min" title="Minimize" style="border:0;border-radius:6px;width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;background:#334155;color:#e5e7eb;cursor:pointer;font-size:14px;">–</button>
-            <button id="dt-close" title="Close (stop watching)" style="border:0;border-radius:6px;width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;background:#334155;color:#e5e7eb;cursor:pointer;font-size:14px;">×</button>
+            <span id="dt-label" style="font-size:11px;color:#9b93b4;"></span>
+            <button id="dt-min" title="Minimize" style="border:0;border-radius:6px;width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;background:#2e2748;color:#ece9f5;cursor:pointer;font-size:14px;">–</button>
+            <button id="dt-close" title="Close (stop watching)" style="border:0;border-radius:6px;width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;background:#2e2748;color:#ece9f5;cursor:pointer;font-size:14px;">×</button>
           </span>
         </div>
-        <div id="dt-status" style="color:#94a3b8;margin-bottom:2px;"></div>
+        <div id="dt-status" style="color:#9b93b4;margin-bottom:2px;"></div>
         <div id="dt-big" style="font-size:22px;font-weight:700;"></div>
-        <div style="margin-top:8px;height:6px;background:#1e293b;border-radius:999px;overflow:hidden;">
-          <div id="dt-bar" style="height:100%;width:0%;background:#475569;transition:width 80ms linear;"></div>
+        <div style="margin-top:8px;height:6px;background:#211a36;border-radius:999px;overflow:hidden;">
+          <div id="dt-bar" style="height:100%;width:0%;background:${PALETTE.barIdle};transition:width 80ms linear;"></div>
         </div>
-        <div id="dt-dbg" style="margin-top:6px;font:11px/1.5 monospace;color:#7dd3fc;"></div>
+        <div id="dt-dbg" style="margin-top:6px;font:11px/1.5 monospace;color:#5eead4;"></div>
         <div style="margin-top:10px;display:flex;gap:6px;">
-          <button id="dt-plant" style="flex:1;border:0;border-radius:7px;padding:6px;background:linear-gradient(180deg,#ef5454,#d92642);color:#fff;font-weight:700;cursor:pointer;">Plant now</button>
-          <button id="dt-cancel" style="border:0;border-radius:7px;padding:6px 10px;background:#334155;color:#e5e7eb;cursor:pointer;">Reset</button>
-          <button id="dt-pip" style="border:0;border-radius:7px;padding:6px 10px;background:#0ea5e9;color:#04293b;font-weight:600;cursor:pointer;">⧉ Pop out</button>
+          <button id="dt-plant" style="flex:1;border:0;border-radius:7px;padding:6px;background:linear-gradient(180deg,#e11d48,#9f1239);color:#fdeef1;font-weight:700;cursor:pointer;">Plant now</button>
+          <button id="dt-cancel" style="border:0;border-radius:7px;padding:6px 10px;background:#2e2748;color:#ece9f5;cursor:pointer;">Reset</button>
+          <button id="dt-pip" title="Open the floating timer" style="border:0;border-radius:7px;padding:6px 10px;background:#2dd4bf;color:#04342f;font-weight:600;cursor:pointer;">⧉ Float</button>
         </div>`;
       document.documentElement.appendChild(hud);
       this.hud = hud;
@@ -701,9 +736,9 @@
       el.label.textContent = `${GAMES[cfg.game].label} · ${VERSION}${debugOn ? "-debug" : ""}`;
       el.status.textContent = status;
       el.big.textContent = bigTxt;
-      el.big.style.color = color || "#e5e7eb";
+      el.big.style.color = color || PALETTE.text;
       el.bar.style.width = (pct * 100).toFixed(1) + "%";
-      el.bar.style.background = color || "#475569";
+      el.bar.style.background = color || PALETTE.barIdle;
       // Mirror to the pop-out panel if open.
       panel.update(status, bigTxt, color, pct);
       if (debugOn && secs == null && dbg) {
@@ -737,7 +772,7 @@
 
     async open() {
       if (!("documentPictureInPicture" in window)) {
-        overlay.set("Pop-out needs Chrome 116+ (not supported here)", null);
+        overlay.set("Floating timer needs Chrome 116+ (not supported here)", null);
         return;
       }
       if (this.win) { try { this.win.focus(); } catch (e) {} return; }
@@ -747,14 +782,16 @@
       } catch (e) { return; }
       this.win = w;
       const d = w.document;
-      d.body.style.cssText = "margin:0;background:#0f172a;color:#e5e7eb;font:13px/1.4 'Segoe UI',system-ui,sans-serif;";
+      injectFont(d);
+      d.body.style.cssText = "margin:0;background:#120e22;color:" + PALETTE.text +
+        ";font:13px/1.4 " + FONT_STACK + ";";
       d.body.innerHTML = `
         <div style="padding:12px 14px;">
-          <canvas id="p-score" style="width:100%;display:block;border-radius:6px;background:#1e293b;margin-bottom:8px;"></canvas>
-          <div id="p-status" style="color:#94a3b8;margin-bottom:2px;">Watching for plant…</div>
+          <canvas id="p-score" style="width:100%;display:block;border-radius:6px;background:#211a36;margin-bottom:8px;"></canvas>
+          <div id="p-status" style="color:#9b93b4;margin-bottom:2px;">Watching for plant…</div>
           <div id="p-big" style="font-size:38px;font-weight:700;line-height:1.1;">—</div>
-          <div style="margin-top:8px;height:7px;background:#1e293b;border-radius:999px;overflow:hidden;">
-            <div id="p-bar" style="height:100%;width:0%;background:#475569;transition:width 80ms linear;"></div>
+          <div style="margin-top:8px;height:7px;background:#211a36;border-radius:999px;overflow:hidden;">
+            <div id="p-bar" style="height:100%;width:0%;background:${PALETTE.barIdle};transition:width 80ms linear;"></div>
           </div>
         </div>`;
       const sc = d.getElementById("p-score");
@@ -776,9 +813,9 @@
       if (!this.win || !this.els.big) return;
       this.els.status.textContent = status;
       this.els.big.textContent = bigTxt;
-      this.els.big.style.color = color || "#e5e7eb";
+      this.els.big.style.color = color || PALETTE.text;
       this.els.bar.style.width = (pct * 100).toFixed(1) + "%";
-      this.els.bar.style.background = color || "#475569";
+      this.els.bar.style.background = color || PALETTE.barIdle;
     }
 
     // Mirror the score-bar strip (team tags + scores + round) into the panel.

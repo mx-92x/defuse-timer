@@ -3,26 +3,84 @@
 <head>
   <meta charset="utf-8">
   <style>
+    /* Bundled font (no external fetch — works offline / under MV3 CSP). */
+    @font-face { font-family: "Poppins"; font-weight: 400; font-style: normal;
+      font-display: swap; src: url("fonts/poppins-400.woff2") format("woff2"); }
+    @font-face { font-family: "Poppins"; font-weight: 600; font-style: normal;
+      font-display: swap; src: url("fonts/poppins-600.woff2") format("woff2"); }
+    @font-face { font-family: "Poppins"; font-weight: 700; font-style: normal;
+      font-display: swap; src: url("fonts/poppins-700.woff2") format("woff2"); }
+    @font-face { font-family: "Poppins"; font-weight: 800; font-style: normal;
+      font-display: swap; src: url("fonts/poppins-800.woff2") format("woff2"); }
+
+    /* ---- Brand palette (single source of truth) -------------------------
+       primary = violet, secondary = teal; countdown states emerald/amber/rose. */
+    :root {
+      --violet: #8b5cf6;       /* primary */
+      --violet-600: #7c3aed;
+      --teal: #2dd4bf;         /* secondary */
+      --teal-600: #14b8a6;
+      --bg-0: #0e0b1a;         /* darkest (also html bg behind rounded body) */
+      --bg-1: #1a1430;
+      --bg-2: #2e1d52;
+      --text: #ece9f5;
+      --muted: #9b93b4;
+      --faint: #7a7392;
+      --card: rgba(167, 139, 250, 0.08);
+      --card-bd: rgba(167, 139, 250, 0.16);
+      --field-bg: rgba(20, 14, 34, 0.55);
+      --safe: #34d399;         /* countdown: plenty of time (emerald) */
+      --caution: #fbbf24;      /* countdown: getting close (amber) */
+      --danger: #f43f5e;       /* countdown: about to blow (rose) */
+    }
+
     * { box-sizing: border-box; }
-    body {
-      width: 288px; margin: 0; padding: 13px 18px;
-      font: 13px/1.35 "Segoe UI", system-ui, sans-serif;
-      color: #e7ecf3;
-      /* Diagonal navy -> indigo gradient + a cyan glow bleeding from top-right. */
+    /* Full-bleed dark popup. Chrome on Windows can size the popup WINDOW a bit
+       larger than our 288px content (reserved scrollbar width, fractional
+       display scaling), and that extra canvas defaults to WHITE — which showed
+       as an L-shaped strip on the right/bottom. So the gradient is painted on a
+       FIXED, full-viewport layer (body::before) that covers the entire window
+       regardless of content size, with a solid dark <html>/<body> backstop. No
+       white can show through. (Rounded corners aren't attempted: Chrome on
+       Windows won't round the popup window — any radius leaks white at the OS
+       window edges — so we add depth with an inset shadow/vignette instead.) */
+    /* overflow:hidden on the ROOT too: stops Chrome reserving a scrollbar
+       gutter, which is the band that stayed white on the right/bottom (a fixed
+       layer's coverage excludes the reserved gutter). */
+    html, body { margin: 0; background: var(--bg-0); overflow: hidden; }
+    ::-webkit-scrollbar { width: 0; height: 0; }
+    body::before {
+      content: ""; position: fixed; inset: 0; z-index: -1;
+      /* Diagonal violet gradient + a teal glow bleeding from the top-right. */
       background:
-        radial-gradient(130% 80% at 100% 0%, rgba(34, 211, 238, 0.20), transparent 55%),
-        linear-gradient(160deg, #0b1220 0%, #141a33 45%, #2c2156 100%);
+        radial-gradient(130% 80% at 100% 0%, rgba(45, 212, 191, 0.18), transparent 55%),
+        linear-gradient(160deg, var(--bg-0) 0%, var(--bg-1) 45%, var(--bg-2) 100%);
+    }
+    body {
+      position: relative;
+      width: 288px; margin: 0; padding: 13px 18px;
+      font: 13px/1.35 "Poppins", "Segoe UI", system-ui, sans-serif;
+      color: var(--text);
+      background: transparent;
+      overflow: hidden;
+      /* Depth instead of rounded corners: a soft dark vignette around the edges
+         + a faint violet hairline + a subtle top highlight = a "framed/floating"
+         feel without needing the window itself to be rounded. */
+      box-shadow:
+        inset 0 0 0 1px rgba(167, 139, 250, 0.10),
+        inset 0 1px 0 0 rgba(255, 255, 255, 0.05),
+        inset 0 0 34px rgba(0, 0, 0, 0.5);
     }
 
     /* Header */
     h1 { font-size: 20px; font-weight: 800; margin: 0; letter-spacing: -0.3px;
-      color: #f8fafc; }
-    .sub { color: #8b97ad; font-size: 11px; margin: 3px 0 11px; }
+      color: #faf9ff; }
+    .sub { color: var(--muted); font-size: 11px; margin: 3px 0 11px; }
 
     /* Frosted card */
     .card {
-      background: rgba(148, 163, 184, 0.09);
-      border: 1px solid rgba(148, 163, 184, 0.15);
+      background: var(--card);
+      border: 1px solid var(--card-bd);
       border-radius: 12px;
       padding: 11px 12px;
       margin-bottom: 9px;
@@ -33,53 +91,53 @@
 
     /* Game field */
     .field label { display: block; font-size: 10px; letter-spacing: 0.4px;
-      text-transform: uppercase; color: #8b97ad; margin-bottom: 4px; }
+      text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
     select {
       width: 100%; appearance: none; -webkit-appearance: none;
-      background: rgba(15, 23, 42, 0.5);
-      border: 1px solid rgba(148, 163, 184, 0.2);
-      color: #f1f5f9; font: inherit; font-size: 14px; font-weight: 600;
+      background: var(--field-bg);
+      border: 1px solid var(--card-bd);
+      color: #f4f2fb; font: inherit; font-size: 14px; font-weight: 600;
       border-radius: 9px; padding: 8px 32px 8px 12px; cursor: pointer;
-      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%238b97ad' stroke-width='2'><path d='M4 6l4 4 4-4'/></svg>");
+      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%239b93b4' stroke-width='2'><path d='M4 6l4 4 4-4'/></svg>");
       background-repeat: no-repeat; background-position: right 11px center;
     }
-    select:focus { outline: none; border-color: rgba(34, 211, 238, 0.6); }
+    select:focus { outline: none; border-color: var(--violet); }
 
     /* Sliders */
     .slider + .slider { margin-top: 12px; }
     .srow { display: flex; justify-content: space-between; align-items: center; margin-bottom: 7px; }
-    .sname { font-size: 13px; font-weight: 600; color: #e7ecf3; }
-    .val { font-size: 11.5px; font-weight: 700; color: #cdeefb;
-      background: rgba(15, 23, 42, 0.55); border: 1px solid rgba(148, 163, 184, 0.18);
+    .sname { font-size: 13px; font-weight: 600; color: var(--text); }
+    .val { font-size: 11.5px; font-weight: 700; color: var(--teal);
+      background: var(--field-bg); border: 1px solid var(--card-bd);
       border-radius: 7px; padding: 2px 8px; min-width: 36px; text-align: center; }
     input[type=range] { -webkit-appearance: none; appearance: none;
       width: 100%; height: 16px; background: transparent; cursor: pointer; }
     input[type=range]::-webkit-slider-runnable-track {
       height: 6px; border-radius: 999px;
       background: linear-gradient(to right,
-        #22d3ee 0%, #38bdf8 var(--pct, 50%),
-        rgba(255, 255, 255, 0.13) var(--pct, 50%), rgba(255, 255, 255, 0.13) 100%);
+        var(--violet) 0%, var(--teal) var(--pct, 50%),
+        rgba(255, 255, 255, 0.12) var(--pct, 50%), rgba(255, 255, 255, 0.12) 100%);
     }
     input[type=range]::-webkit-slider-thumb {
       -webkit-appearance: none; appearance: none; margin-top: -5px;
       width: 16px; height: 16px; border-radius: 50%;
-      background: #bfe6f2; border: 2px solid #22d3ee;
-      box-shadow: 0 0 5px 1px rgba(34, 211, 238, 0.42);
+      background: #f0ecff; border: 2px solid var(--violet);
+      box-shadow: 0 0 5px 1px rgba(139, 92, 246, 0.45);
     }
 
     /* Buttons */
     button { border: 0; border-radius: 10px; font: inherit; cursor: pointer; }
     .row { display: flex; gap: 9px; margin-bottom: 8px; }
     #start { flex: 1.6; padding: 9px; font-size: 13px; font-weight: 700;
-      color: #052e16; background: linear-gradient(180deg, #28c065, #20b058);
+      color: #fff; background: linear-gradient(180deg, var(--violet), var(--violet-600));
       box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25); }
     #stop { flex: 1; padding: 9px; font-size: 13px; font-weight: 600;
-      color: #e7ecf3; background: rgba(100, 116, 139, 0.5);
-      border: 1px solid rgba(148, 163, 184, 0.2); }
+      color: var(--text); background: rgba(124, 58, 237, 0.18);
+      border: 1px solid var(--card-bd); }
     #plant { width: 100%; padding: 10px; font-size: 13.5px; font-weight: 700;
-      color: #fff; background: linear-gradient(180deg, #e9495c, #d62c46);
+      color: #fdeef1; background: linear-gradient(180deg, #e11d48, #9f1239);
       box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25); }
-    button:hover { filter: brightness(1.07); }
+    button:hover { filter: brightness(1.08); }
     button:active { transform: translateY(1px); }
 
     /* Collapsible "Advanced settings" holding the three tuning sliders */
@@ -88,13 +146,13 @@
       list-style: none; cursor: pointer; user-select: none;
       display: flex; align-items: center; justify-content: space-between;
       padding: 10px 12px; border-radius: 12px;
-      background: rgba(148, 163, 184, 0.09);
-      border: 1px solid rgba(148, 163, 184, 0.15);
-      font-size: 12px; font-weight: 600; letter-spacing: 0.2px; color: #cdd6e4;
+      background: var(--card);
+      border: 1px solid var(--card-bd);
+      font-size: 12px; font-weight: 600; letter-spacing: 0.2px; color: #cfc7e4;
     }
     details.adv > summary::-webkit-details-marker { display: none; }
     details.adv > summary::after {
-      content: "\25BE"; color: #8b97ad; font-size: 11px;
+      content: "\25BE"; color: var(--muted); font-size: 11px;
       transform: rotate(-90deg); transition: transform .15s;
     }
     details.adv[open] > summary { border-radius: 12px 12px 0 0; border-bottom: 0; }
@@ -102,14 +160,14 @@
     details.adv .card { margin-bottom: 0; border-radius: 0 0 12px 12px; }
 
     .check { display: flex; align-items: center; gap: 7px; margin-top: 11px;
-      font-size: 11px; color: #8b97ad; cursor: pointer; user-select: none; }
-    .check input { accent-color: #22d3ee; cursor: pointer; }
-    #status { margin-top: 11px; font-size: 11px; color: #7b8499; }
-    #keys { margin-top: 6px; font-size: 10px; color: #6b768c; }
+      font-size: 11px; color: var(--muted); cursor: pointer; user-select: none; }
+    .check input { accent-color: var(--violet); cursor: pointer; }
+    #status { margin-top: 11px; font-size: 11px; color: var(--faint); }
+    #keys { margin-top: 6px; font-size: 10px; color: #6a6285; }
   </style>
 </head>
 <body>
-  <h1>Defuse Time</h1>
+  <h1>Defuse Timer</h1>
   <div class="sub">Spike &amp; bomb countdown for stream viewers</div>
 
   <div class="card field">
