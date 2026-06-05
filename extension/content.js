@@ -642,6 +642,7 @@
     ensure() {
       if (this.hud) return;
       injectFont(document);
+      const pipSupported = "documentPictureInPicture" in window;
       const hud = document.createElement("div");
       hud.id = "defuse-time-hud";
       hud.style.cssText = [
@@ -673,7 +674,7 @@
         <div style="margin-top:8px;display:flex;gap:6px;">
           <button id="dt-plant" style="flex:1;border:0;border-radius:7px;padding:6px;background:linear-gradient(180deg,#e11d48,#9f1239);color:#fdeef1;font-weight:700;cursor:pointer;">Plant now</button>
           <button id="dt-cancel" style="border:0;border-radius:7px;padding:6px 10px;background:#2e2748;color:#ece9f5;cursor:pointer;">Reset</button>
-          <button id="dt-pip" title="Open the floating timer" style="border:0;border-radius:7px;padding:6px 10px;background:#2dd4bf;color:#04342f;font-weight:600;cursor:pointer;">⧉ Float</button>
+          ${pipSupported ? `<button id="dt-pip" title="Open the floating timer" style="border:0;border-radius:7px;padding:6px 10px;background:#2dd4bf;color:#04342f;font-weight:600;cursor:pointer;">⧉ Float</button>` : ``}
         </div>`;
       document.documentElement.appendChild(hud);
       this.hud = hud;
@@ -685,7 +686,8 @@
       hud.querySelector("#dt-plant").onclick = () => detector.triggerPlant("manual");
       hud.querySelector("#dt-cancel").onclick = () => { detector.reset(true); this.set("Watching for plant…", null); };
       hud.querySelector("#dt-close").onclick = () => detector.stop();
-      hud.querySelector("#dt-pip").onclick = () => panel.open();
+      const pipBtn = hud.querySelector("#dt-pip");
+      if (pipBtn) pipBtn.onclick = () => panel.open();
       hud.querySelector("#dt-min").onclick = () => this.toggleMin();
       // Hidden when minimized (leaves header + countdown). Remember each one's
       // display so restoring keeps the buttons row as flex (not block), etc.
