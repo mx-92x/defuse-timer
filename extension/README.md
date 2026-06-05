@@ -1,6 +1,8 @@
 # Defuse Timer (extension)
 
-This folder is the Chrome MV3 extension. It loads unpacked, with no build step.
+This folder is the MV3 extension. It loads unpacked in **Chrome, Edge, Brave,
+and Firefox 109+**, with no build step. The Firefox build uses the same files;
+only the loading method differs.
 
 For plain end-user install steps, see the main [README](../README.md). This file
 goes deeper on how detection works, how to test it, and how to tune it.
@@ -35,11 +37,23 @@ countdown if the indicator disappears while time remains.
 
 ## Install (load unpacked)
 
-1. Go to `chrome://extensions`.
+### Chrome / Edge / Brave
+
+1. Go to `chrome://extensions` (or `edge://extensions`).
 2. Turn on **Developer mode** (top-right).
 3. Click **Load unpacked** and select this `extension/` folder.
-4. Open a Valorant or CS2 stream on youtube.com or twitch.tv.
+4. Open a Valorant or CS2 stream on `youtube.com` or `twitch.tv`.
 5. Click the Defuse Timer icon, pick the game (and CS2 HUD profile), then
+   **Start watching**.
+
+### Firefox
+
+1. Open `about:debugging#/runtime/this-firefox`.
+2. Click **Load Temporary Add-on…** and pick `manifest.json` from this
+   folder. (Temporary add-ons are removed on browser restart; re-load the
+   same way, or sign through AMO for permanence.)
+3. Open a Valorant or CS2 stream on `youtube.com` or `twitch.tv`.
+4. Click the Defuse Timer icon, pick the game (and CS2 HUD profile), then
    **Start watching**.
 
 ## Testing it
@@ -49,9 +63,10 @@ countdown if the indicator disappears while time remains.
   **Alt+X** (or the close button on the overlay) closes it.
 - **Move it:** drag the overlay anywhere (grab it off the buttons); the position
   is saved across reloads. The minimize button shrinks it to a small chip.
-- **Floating timer (second monitor):** click **Float** to open a small
-  Picture-in-Picture window (Chrome 116+) with the countdown and a live mirror of
-  the score bar.
+- **Floating timer (second monitor, Chrome 116+ only):** click **Float** to open
+  a small always-on-top window with the countdown and a live mirror of the
+  score bar. On Firefox the button shows a "not available in this browser"
+  message in the overlay; the in-page overlay itself works unchanged.
 - **Auto:** with a live round playing, the overlay should fire within about a
   second of the plant. It works best on a standard full-frame broadcast.
 

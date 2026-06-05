@@ -35,16 +35,17 @@
     }
 
     * { box-sizing: border-box; }
-    /* Full-bleed dark popup. Chrome on Windows can size the popup WINDOW a bit
-       larger than our 288px content (reserved scrollbar width, fractional
-       display scaling), and that extra canvas defaults to WHITE — which showed
-       as an L-shaped strip on the right/bottom. So the gradient is painted on a
-       FIXED, full-viewport layer (body::before) that covers the entire window
-       regardless of content size, with a solid dark <html>/<body> backstop. No
-       white can show through. (Rounded corners aren't attempted: Chrome on
-       Windows won't round the popup window — any radius leaks white at the OS
-       window edges — so we add depth with an inset shadow/vignette instead.) */
-    /* overflow:hidden on the ROOT too: stops Chrome reserving a scrollbar
+    /* Full-bleed dark popup. Some browsers (notably Chrome/Edge on Windows)
+       can size the popup WINDOW a bit larger than our 288px content (reserved
+       scrollbar width, fractional display scaling), and that extra canvas
+       defaults to WHITE — which showed as an L-shaped strip on the
+       right/bottom. So the gradient is painted on a FIXED, full-viewport layer
+       (body::before) that covers the entire window regardless of content size,
+       with a solid dark <html>/<body> backstop. No white can show through.
+       (Rounded corners aren't attempted: the host browser doesn't round the
+       popup window — any radius leaks white at the OS window edges — so we add
+       depth with an inset shadow/vignette instead.) */
+    /* overflow:hidden on the ROOT too: stops the browser reserving a scrollbar
        gutter, which is the band that stayed white on the right/bottom (a fixed
        layer's coverage excludes the reserved gutter). */
     html, body { margin: 0; background: var(--bg-0); overflow: hidden; }
@@ -283,7 +284,7 @@
         <dt>Move · minimize · close</dt>
         <dd>Drag the overlay to reposition (saved); – minimizes it; × stops watching.</dd>
         <dt>⧉ Float</dt>
-        <dd>Open the Floating timer — a small always-on-top window for a second monitor.</dd>
+        <dd>Open the Floating timer — a small always-on-top window for a second monitor. Requires Chrome 116+.</dd>
       </dl>
       <h4>Hotkeys</h4>
       <dl>

@@ -1,9 +1,10 @@
 # Defuse Timer
 
-A **free, open-source** Chrome (MV3) browser extension that shows a **detonation
-countdown** when the spike (Valorant, 45s) or bomb (CS2, 40s) is planted. It
-detects the plant automatically from a Twitch or YouTube stream's video, and it's
-built for people who *watch* esports streams, not players or broadcasters.
+A **free, open-source** MV3 browser extension for **Chrome, Edge, Brave, and
+Firefox 109+** that shows a **detonation countdown** when the spike (Valorant,
+45s) or bomb (CS2, 40s) is planted. It detects the plant automatically from a
+Twitch or YouTube stream's video, and it's built for people who *watch* esports
+streams, not players or broadcasters.
 
 **[➜ Install from the Chrome Web Store](https://chromewebstore.google.com/detail/defuse-timer/dgnmekhdiadihlanakmfbinbaldfhfgh)**
 
@@ -84,6 +85,34 @@ called "loading unpacked" and takes about a minute.
    you just downloaded.
 5. That's it. Defuse Timer appears in your toolbar. Click the puzzle-piece icon
    and pin it if you want it always visible.
+
+### Firefox (load unpacked)
+
+The same code also runs in Firefox 109+ as a sideloaded add-on. (The Chrome
+Web Store build is the primary distribution; the Firefox build is loaded
+unpacked from this repository until/unless an AMO listing is published.)
+
+1. **Download the files** (green **Code** button → **Download ZIP**, or
+   `git clone <repository-url>`) and unzip them somewhere you'll keep.
+2. Open `about:debugging#/runtime/this-firefox` in Firefox.
+3. Click **Load Temporary Add-on…** and select `extension/manifest.json`
+   from the unzipped `extension/` folder.
+4. Pin the extension from `about:addons` if you want it always visible.
+5. Open a Valorant or CS2 stream on `youtube.com` or `twitch.tv` and use
+   the toolbar popup as usual.
+
+**Notes**
+
+- The **Float** button in the on-stream overlay needs Chrome 116+ (it uses
+  the Document Picture-in-Picture API, which Firefox does not implement).
+  Clicking it on Firefox shows a "not available in this browser" message
+  in the overlay; the rest of the extension — automatic detection, manual
+  plant (`Alt+P`), hotkeys, draggable overlay, settings sliders — works
+  unchanged on Firefox.
+- Temporary add-ons are removed when Firefox restarts. Re-load via
+  `about:debugging` to bring it back, or sign it through
+  [addons.mozilla.org](https://addons.mozilla.org/) for a persistent
+  install.
 
 ## Using it
 

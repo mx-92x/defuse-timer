@@ -789,7 +789,7 @@
 
     async open() {
       if (!("documentPictureInPicture" in window)) {
-        overlay.set("Floating timer needs Chrome 116+ (not supported here)", null);
+        overlay.set("Floating timer needs Chrome 116+ (not available in this browser)", null);
         return;
       }
       if (this.win) { try { this.win.focus(); } catch (e) {} return; }
