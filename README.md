@@ -5,10 +5,7 @@ countdown** when the spike (Valorant, 45s) or bomb (CS2, 40s) is planted. It
 detects the plant automatically from a Twitch or YouTube stream's video, and it's
 built for people who *watch* esports streams, not players or broadcasters.
 
-> **Status:** working MVP (v0.3.10). Both games auto-detect plants live on
-> **YouTube and Twitch**, and CS2 has three selectable HUD profiles. The build is
-> clean and publishable (debug overlay off by default). Next up is broader
-> tournament testing, then a Chrome Web Store listing.
+**[➜ Install from the Chrome Web Store](https://chromewebstore.google.com/detail/defuse-timer/dgnmekhdiadihlanakmfbinbaldfhfgh)**
 
 ## Demo
 
@@ -18,8 +15,7 @@ A short clip: the overlay detects the spike plant, counts down, and clears when
 the spike is defused. ([Direct link](docs/demo.mp4) if the player doesn't load.)
 
 <!--
-The <video> tag points at the committed file's raw URL. It renders for you on
-this private repo and for everyone once the repo is public. If it ever fails to
+The <video> tag points at the committed file's raw URL. If it ever fails to
 embed, the most reliable method is to open this README in GitHub's web editor and
 drag docs/demo.mp4 in, which inserts a user-attachments URL that always plays.
 -->
@@ -65,8 +61,17 @@ cheap and robust. The detection logic lives in
 
 ## Installation
 
-Defuse Timer isn't on the Chrome Web Store yet, so for now you add it by hand.
-This is called "loading unpacked" and takes about a minute.
+### From the Chrome Web Store (recommended)
+
+Install in one click:
+**[Defuse Timer on the Chrome Web Store](https://chromewebstore.google.com/detail/defuse-timer/dgnmekhdiadihlanakmfbinbaldfhfgh)**.
+After installing, click the puzzle-piece icon in your toolbar and pin it if you
+want it always visible.
+
+### Load unpacked (from source)
+
+You can also run it straight from source, which is handy for development. This is
+called "loading unpacked" and takes about a minute.
 
 1. **Download the files.** On this repository's GitHub page, click the green
    **Code** button and choose **Download ZIP**, then unzip it somewhere you'll
@@ -79,9 +84,6 @@ This is called "loading unpacked" and takes about a minute.
    you just downloaded.
 5. That's it. Defuse Timer appears in your toolbar. Click the puzzle-piece icon
    and pin it if you want it always visible.
-
-Once the extension is published on the Chrome Web Store you'll be able to install
-it in one click, and these steps will be updated.
 
 ## Using it
 
