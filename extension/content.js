@@ -84,7 +84,7 @@
   const cfg = { game: "valorant", running: false };
   let dbg = null;           // latest per-tick debug snapshot (read by the overlay)
   let debugOn = false;      // debug HUD toggle (ROI boxes + value readout); default off
-  const VERSION = "0.3.10";
+  const VERSION = "0.3.11";
   const TICK_MS = 250;   // sample 4x/sec so confirmation (CONFIRM_K) is fast
 
   // ---- brand palette --------------------------------------------------------
@@ -118,6 +118,19 @@
       s.textContent = [400, 600, 700, 800].map(face).join("");
       (doc.head || doc.documentElement).appendChild(s);
     } catch (e) { /* getURL unavailable -> system font fallback */ }
+  }
+
+  // Is the Document Picture-in-Picture API (the Floating timer) actually usable?
+  // It works correctly only on Chromium. Firefox exposes a non-conformant
+  // `documentPictureInPicture.requestWindow` that opens a plain blank browser
+  // window instead of a chromeless PiP panel, so neither the property name nor
+  // the method's existence is a reliable test. Also require a Chromium signal:
+  // `navigator.userAgentData` is implemented by Chromium and intentionally not
+  // by Firefox, so its presence gates the feature to where it genuinely works.
+  function hasDocPiP() {
+    return !!(navigator.userAgentData &&
+      window.documentPictureInPicture &&
+      typeof window.documentPictureInPicture.requestWindow === "function");
   }
 
   // Valorant spike-icon shape templates (30x16 red-masks), extracted from real
@@ -686,6 +699,12 @@
       hud.querySelector("#dt-cancel").onclick = () => { detector.reset(true); this.set("Watching for plant…", null); };
       hud.querySelector("#dt-close").onclick = () => detector.stop();
       hud.querySelector("#dt-pip").onclick = () => panel.open();
+      // The Floating timer uses Document Picture-in-Picture (Chromium only).
+      // On browsers without it (e.g. Firefox) hide the button so there's no
+      // dead control. Same capability check PopoutPanel.open() guards on.
+      if (!hasDocPiP()) {
+        hud.querySelector("#dt-pip").style.display = "none";
+      }
       hud.querySelector("#dt-min").onclick = () => this.toggleMin();
       // Hidden when minimized (leaves header + countdown). Remember each one's
       // display so restoring keeps the buttons row as flex (not block), etc.
@@ -788,7 +807,7 @@
     }
 
     async open() {
-      if (!("documentPictureInPicture" in window)) {
+      if (!hasDocPiP()) {
         overlay.set("Floating timer needs Chrome 116+ (not supported here)", null);
         return;
       }
